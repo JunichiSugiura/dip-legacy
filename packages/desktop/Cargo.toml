@@ -1,6 +1,7 @@
 [package]
 name = "dip_desktop"
 version = "0.1.0"
+authors = ["Junichi Sugiura"]
 edition = "2021"
 
 [dependencies]
