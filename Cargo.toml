@@ -13,10 +13,10 @@ keywords = ["text", "editor", "IDE", "vi", "vim"]
 
 [dependencies]
 dip_core = { version = "^0.1", path = "./packages/core" }
-dip_desktop = { version = "^0.1", path = "./packages/desktop" }
+# dip_desktop = { version = "^0.1", path = "./packages/desktop" }
 
 [workspace]
 members = [
     "packages/core",
-    "packages/desktop",
+    # "packages/desktop",
 ]
