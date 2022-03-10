@@ -1,0 +1,14 @@
+[package]
+name = "dip"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dip_core = { path = "./packages/core" }
+dip_desktop = { path = "./packages/desktop" }
+
+[workspace]
+members = [
+    "packages/core",
+    "packages/desktop",
+]
