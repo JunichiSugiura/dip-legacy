@@ -1,8 +1,14 @@
 [package]
 name = "dip_core"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Junichi Sugiura"]
 edition = "2021"
+description = "Multi-platform Text editor purely written in Rust, supercharged by Bevy game engine and Dioxus UI framework."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/JunichiSugiura/dip/"
+homepage = "https://dipeditor.com"
+documentation = "https://github.com/JunichiSugiura/dip/"
+keywords = ["text", "editor", "IDE", "vi", "vim"]
 
 [dependencies]
 bevy_app = { git = "https://github.com/bevyengine/bevy", rev = "2b112026147a8b6780759b32f0ea04dc7d7d8548", default-features = false }
