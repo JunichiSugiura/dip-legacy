@@ -1,4 +1,4 @@
-use bevy_app::App;
+use bevy::app::App;
 use dip_desktop::DipDesktopPlugin;
 
 fn main() {

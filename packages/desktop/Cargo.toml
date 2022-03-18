@@ -11,8 +11,6 @@ documentation = "https://github.com/JunichiSugiura/dip/"
 keywords = ["text", "editor", "IDE", "vi", "vim"]
 
 [dependencies]
-dioxus = { version = "0.2.0", git = "https://github.com/JunichiSugiura/dioxus", branch = "bevy-plugin", features = ["desktop", "bevy"] }
+bevy = { version = "0.6", default-features = false }
+dioxus = { git = "https://github.com/JunichiSugiura/dioxus", branch = "bevy-plugin", features = ["bevy-plugin", "desktop"] }
 dip_core = { version = "^0.1", path = "../core" }
-bevy_app = { version = "^0.6", git = "https://github.com/bevyengine/bevy", rev = "2b112026147a8b6780759b32f0ea04dc7d7d8548", default-features = false }
-bevy_ecs = { version = "^0.6", git = "https://github.com/bevyengine/bevy", rev = "2b112026147a8b6780759b32f0ea04dc7d7d8548", default-features = false }
-bevy_log = { version = "^0.6", git = "https://github.com/bevyengine/bevy", rev = "2b112026147a8b6780759b32f0ea04dc7d7d8548", default-features = false }

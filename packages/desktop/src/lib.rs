@@ -1,10 +1,8 @@
-use bevy_app::{App, Plugin};
-use bevy_log::info;
-use dioxus::{
-    bevy::{use_bevy_context, DioxusDesktopPlugin},
-    desktop::DesktopConfig,
-    prelude::*,
+use bevy::{
+    app::{App, Plugin},
+    log::info,
 };
+use dioxus::{bevy::prelude::*, prelude::*};
 use dip_core::{
     command::{CoreCommand, UICommand},
     DipCorePlugin,
@@ -17,19 +15,18 @@ impl Plugin for DipDesktopPlugin {
         let mut config = DesktopConfig::default().with_default_icon();
         config.with_window(|w| w.with_title("dip"));
 
-        let desktop = DioxusDesktopPlugin::<CoreCommand, UICommand>::new(root, ());
-
         app.add_plugin(DipCorePlugin)
-            .add_plugin(desktop)
+            .add_plugin(DioxusDesktopPlugin::<CoreCommand, UICommand>::new(root, ()))
             .insert_non_send_resource(config);
     }
 }
 
 fn root(cx: Scope) -> Element {
-    let ctx = use_bevy_context::<CoreCommand, UICommand>(&cx);
+    let window = use_bevy_window::<CoreCommand, UICommand>(&cx);
 
     use_future(&cx, (), |_| {
-        let mut rx = ctx.receiver();
+        let mut rx = window.receiver();
+
         async move {
             while let Ok(cmd) = rx.recv().await {
                 info!("🎨 {:?}", cmd);
@@ -42,13 +39,13 @@ fn root(cx: Scope) -> Element {
             h1 { "dip: Text Editor" },
             button {
                 onclick: |_e| {
-                    let _res = ctx.send(CoreCommand::Click);
+                    window.send(CoreCommand::Click).unwrap();
                 },
                 "Click",
             }
             button {
                 onclick: |_e| {
-                    let _res = ctx.send(CoreCommand::Exit);
+                    window.send(CoreCommand::Exit).unwrap();
                 },
                 "Exit",
             }

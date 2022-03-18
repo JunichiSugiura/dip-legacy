@@ -1,3 +1,5 @@
+use crate::Mode;
+
 #[derive(Debug, Clone)]
 pub enum CoreCommand {
     Click,
@@ -6,5 +8,5 @@ pub enum CoreCommand {
 
 #[derive(Debug, Clone, Copy)]
 pub enum UICommand {
-    Test,
+    Mode(Mode),
 }
