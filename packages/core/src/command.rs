@@ -8,5 +8,5 @@ pub enum CoreCommand {
 
 #[derive(Debug, Clone, Copy)]
 pub enum UICommand {
-    Mode(Mode),
+    ModeChange(Mode),
 }
