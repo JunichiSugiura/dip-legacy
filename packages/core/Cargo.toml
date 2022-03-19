@@ -12,5 +12,6 @@ keywords = ["text", "editor", "IDE", "vi", "vim"]
 
 [dependencies]
 bevy = { version = "0.6", default-features = false }
+intrusive-collections = "0.9"
 leafwing-input-manager = "0.2"
 

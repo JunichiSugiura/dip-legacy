@@ -1,5 +1,7 @@
 pub mod command;
+pub mod document;
 
+use crate::document::DocumentPlugin;
 use bevy::{
     app::{App, AppExit, CoreStage, Plugin},
     core::CorePlugin,
@@ -14,7 +16,6 @@ use bevy::{
 };
 use command::{CoreCommand, UICommand};
 use leafwing_input_manager::prelude::*;
-use std::fs;
 
 pub struct DipCorePlugin;
 
@@ -43,14 +44,14 @@ enum Action {
 impl Plugin for DipCorePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugin(LogPlugin::default())
-            .add_plugin(InputManagerPlugin::<Action>::default())
             .add_plugin(CorePlugin::default())
+            .add_plugin(InputManagerPlugin::<Action>::default())
+            .add_plugin(DocumentPlugin::default())
             .add_startup_system(spawn_user)
             .add_system(handle_app_exit)
             .add_system(change_mode)
             .add_system(log_core_command)
             .add_system(log_keyboard_event_system)
-            .add_startup_system(load_file)
             .add_system_to_stage(CoreStage::PostUpdate, send_mode_change);
     }
 }
@@ -79,14 +80,6 @@ fn handle_app_exit(mut events: EventReader<CoreCommand>, mut exit: EventWriter<A
             _ => {}
         }
     }
-}
-
-fn load_file() {
-    let data = fs::read_to_string("./README.md").expect("Failed to read file");
-    println!("############################################");
-    println!("# ./README.md");
-    println!("############################################\n");
-    println!("{}", data);
 }
 
 fn log_keyboard_event_system(mut events: EventReader<KeyboardInput>) {
