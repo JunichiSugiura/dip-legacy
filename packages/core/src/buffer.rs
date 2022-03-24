@@ -1,18 +1,20 @@
 use bevy::ecs::prelude::*;
 use intrusive_collections::intrusive_adapter;
 use intrusive_collections::{rbtree::AtomicLink, KeyAdapter, RBTree};
-use std::convert::From;
+use std::{convert::From, fs};
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Debug)]
 pub struct TextBuffer {
+    file_path: Option<String>,
     pub tree: RBTree<PieceAdapter>,
     original: Vec<u8>,
     encoding: CharacterEncoding,
     info: TextBufferInfo,
 }
 
-impl TextBuffer {
-    pub fn new(original: Vec<u8>) -> TextBuffer {
+impl From<&str> for TextBuffer {
+    fn from(file_path: &str) -> TextBuffer {
+        let original = fs::read(file_path.clone()).expect("Failed to read file");
         if original.is_empty() {
             return TextBuffer::default();
         }
@@ -36,7 +38,7 @@ impl TextBuffer {
         );
         tree.insert(Box::new(piece));
 
-        TextBuffer { tree, original, encoding, info } 
+        TextBuffer { file_path: Some(file_path.to_string()), tree, original, encoding, info } 
     }
 }
 
