@@ -16,6 +16,7 @@ pub fn StatusBar(cx: Scope) -> Element {
                     UICommand::ModeChange(m) => {
                         *mode_type.make_mut() = m.0;
                     }
+                    _ => {}
                 }
             }
         }

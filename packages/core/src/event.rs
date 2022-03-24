@@ -1,11 +1,11 @@
 use std::fmt::Debug;
 
 #[derive(Debug)]
-pub struct NewDocumentWithPath {
+pub struct OpenDocument {
     pub path: String,
 }
 
-impl NewDocumentWithPath {
+impl OpenDocument {
     pub fn new(path: String) -> Self {
         Self { path }
     }
@@ -13,11 +13,11 @@ impl NewDocumentWithPath {
 
 #[derive(Debug)]
 pub struct NewDocument {
-    pub data: String,
+    pub data: Vec<u8>,
 }
 
 impl NewDocument {
-    pub fn new(data: String) -> Self {
+    pub fn new(data: Vec<u8>) -> Self {
         Self { data }
     }
 }

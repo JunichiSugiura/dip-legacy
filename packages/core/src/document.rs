@@ -1,21 +1,6 @@
-use crate::event::{NewDocument, NewDocumentWithPath};
-use bevy::{app::prelude::*, ecs::prelude::*, log::info};
-use intrusive_collections::intrusive_adapter;
-use intrusive_collections::{rbtree::AtomicLink, KeyAdapter, RBTree};
+use crate::{command::UICommand, event::{NewDocument, OpenDocument}, buffer::TextBuffer};
+use bevy::{app::prelude::*, ecs::prelude::*};
 use std::fs;
-
-struct Piece {
-    link: AtomicLink,
-    value: i32,
-}
-
-intrusive_adapter!(PieceAdapter = Box<Piece>: Piece { link: AtomicLink });
-impl<'a> KeyAdapter<'a> for PieceAdapter {
-    type Key = i32;
-    fn get_key(&self, e: &'a Piece) -> i32 {
-        e.value
-    }
-}
 
 #[derive(Default)]
 pub struct DocumentPlugin;
@@ -26,55 +11,44 @@ static CHANGE_DETECTION: &str = "change_detection";
 impl Plugin for DocumentPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<NewDocument>()
-            .add_event::<NewDocumentWithPath>()
+            .add_event::<OpenDocument>()
             .add_stage_after(
                 CoreStage::Update,
                 CHANGE_DETECTION,
                 SystemStage::single_threaded(),
             )
             .add_startup_system(setup)
-            .add_system(handle_new_document.label(HANDLE_NEW_DOCUMENT))
-            .add_system(handle_new_document_with_path.before(HANDLE_NEW_DOCUMENT))
-            .add_system_to_stage(CHANGE_DETECTION, log_text_buffer);
+            .add_system(new_document.label(HANDLE_NEW_DOCUMENT))
+            .add_system_to_stage(CHANGE_DETECTION, send_document_added)
+            .add_system(open_document.before(HANDLE_NEW_DOCUMENT));
     }
 }
 
-#[derive(Component)]
-struct TextBuffer {
-    tree: RBTree<PieceAdapter>,
+fn setup(mut new_doc: EventWriter<OpenDocument>) {
+    new_doc.send(OpenDocument::new("./README.md".into()));
 }
 
-impl TextBuffer {
-    fn new(tree: RBTree<PieceAdapter>) -> Self {
-        Self { tree }
-    }
-}
-
-fn setup(mut new_doc: EventWriter<NewDocumentWithPath>) {
-    new_doc.send(NewDocumentWithPath::new("./README.md".into()));
-}
-
-fn handle_new_document(mut events: EventReader<NewDocument>, mut commands: Commands) {
+fn new_document(mut events: EventReader<NewDocument>, mut commands: Commands) {
     for e in events.iter() {
-        info!("\n{}", e.data);
-        let tree = RBTree::new(PieceAdapter::new());
-
-        commands.spawn().insert(TextBuffer::new(tree));
+        let text_buffer = TextBuffer::new(e.data.clone());
+        commands
+            .spawn()
+            .insert(text_buffer);
     }
 }
 
-fn handle_new_document_with_path(
-    mut events: EventReader<NewDocumentWithPath>,
+fn send_document_added(q: Query<&TextBuffer, Added<TextBuffer>>, mut ui: EventWriter<UICommand>) {
+    for _text_buffer in q.iter() {
+        ui.send(UICommand::DocumentAdded);
+    }
+}
+
+fn open_document(
+    mut events: EventReader<OpenDocument>,
     mut new_doc: EventWriter<NewDocument>,
 ) {
     for e in events.iter() {
-        let data = fs::read_to_string(e.path.clone()).expect("Failed to read file");
-        new_doc.send(NewDocument::new(data));
-    }
-}
-
-fn log_text_buffer(q: Query<&TextBuffer, Changed<TextBuffer>>) {
-    for b in q.iter() {
-        info!("tree: {}", b.tree.is_empty());
+        let bytes = fs::read(e.path.clone()).expect("Failed to read file");
+        new_doc.send(NewDocument::new(bytes));
     }
 }
