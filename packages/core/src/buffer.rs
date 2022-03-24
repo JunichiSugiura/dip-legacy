@@ -5,15 +5,15 @@ use std::{convert::From, fs};
 
 #[derive(Component, Default, Debug)]
 pub struct TextBuffer {
-    file_path: Option<String>,
+    file_path: Option<&'static str>,
     pub tree: RBTree<PieceAdapter>,
     original: Vec<u8>,
     encoding: CharacterEncoding,
     info: TextBufferInfo,
 }
 
-impl From<&str> for TextBuffer {
-    fn from(file_path: &str) -> TextBuffer {
+impl From<&'static str> for TextBuffer {
+    fn from(file_path: &'static str) -> TextBuffer {
         let original = fs::read(file_path.clone()).expect("Failed to read file");
         if original.is_empty() {
             return TextBuffer::default();
@@ -30,15 +30,31 @@ impl From<&str> for TextBuffer {
                 info.line_starts.len() as i32 - 1,
                 match info.line_starts.last() {
                     Some(x) => original.len() as i32 - x,
-                    None => 0
-                }
+                    None => 0,
+                },
             ),
             bytes.len() as i32,
             info.line_starts.len() as i32 - 1,
         );
         tree.insert(Box::new(piece));
 
-        TextBuffer { file_path: Some(file_path.to_string()), tree, original, encoding, info } 
+        TextBuffer {
+            file_path: Some(file_path),
+            tree,
+            original,
+            encoding,
+            info,
+        }
+    }
+}
+
+impl TextBuffer {
+    pub fn insert(offset: i32, text: &str) {
+        todo!();
+    }
+
+    pub fn delete(offset: i32, count: i32) {
+        todo!();
     }
 }
 
@@ -81,7 +97,7 @@ impl Default for TextBufferInfo {
     fn default() -> TextBufferInfo {
         TextBufferInfo {
             line_starts: vec![0],
-            line_break_count: Default::default()
+            line_break_count: Default::default(),
         }
     }
 }
@@ -103,13 +119,13 @@ impl TextBufferInfo {
                             line_starts.line_starts.push(i as i32 + 1);
                             line_starts.line_break_count.cr += 1;
                         }
-                    }
+                    },
                     None => {}
                 },
                 '\n' => {
                     line_starts.line_starts.push(i as i32 + 1);
                     line_starts.line_break_count.lf += 1;
-                },
+                }
                 _ => {}
             }
         }
@@ -124,20 +140,6 @@ struct LineBreakCount {
     lf: i32,
     crlf: i32,
 }
-
-// enum EOL {
-//    LF,
-//    CRLF,
-// }
-
-// impl EOL {
-//     fn as_str(&self) -> &'static str {
-//         match self {
-//             EOL::LF => "\n",
-//             EOL::CRLF => "\r\n"
-//         }
-//     }
-// }
 
 #[derive(Default, Debug)]
 pub struct Piece {
@@ -176,8 +178,6 @@ pub struct BufferCursor {
 
 impl BufferCursor {
     fn new(line: i32, column: i32) -> Self {
-        Self {
-            line, column
-        }
+        Self { line, column }
     }
 }

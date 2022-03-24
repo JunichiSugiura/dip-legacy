@@ -1,4 +1,4 @@
-use crate::{command::UICommand, event::*, buffer::TextBuffer};
+use crate::{buffer::TextBuffer, command::UICommand, event::*};
 use bevy::{app::prelude::*, ecs::prelude::*};
 
 #[derive(Default)]
@@ -26,27 +26,17 @@ fn setup(mut new_doc: EventWriter<OpenDocument>) {
     new_doc.send(OpenDocument::new("./README.md".into()));
 }
 
-fn new_document(
-    mut events: EventReader<NewDocument>,
-    mut commands: Commands,
-) {
+fn new_document(mut events: EventReader<NewDocument>, mut commands: Commands) {
     for _ in events.iter() {
         let buffer = TextBuffer::default();
-        commands
-            .spawn()
-            .insert(buffer);
+        commands.spawn().insert(buffer);
     }
 }
 
-fn open_document(
-    mut events: EventReader<OpenDocument>,
-    mut commands: Commands
-) {
+fn open_document(mut events: EventReader<OpenDocument>, mut commands: Commands) {
     for e in events.iter() {
-        let buffer = TextBuffer::from(e.path.as_str());
-        commands
-            .spawn()
-            .insert(buffer);
+        let buffer = TextBuffer::from(e.path);
+        commands.spawn().insert(buffer);
     }
 }
 

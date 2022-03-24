@@ -2,12 +2,11 @@ use std::fmt::Debug;
 
 #[derive(Debug)]
 pub struct OpenDocument {
-    pub path: String,
+    pub path: &'static str,
 }
 
-
 impl OpenDocument {
-    pub fn new(path: String) -> Self {
+    pub fn new(path: &'static str) -> Self {
         Self { path }
     }
 }
