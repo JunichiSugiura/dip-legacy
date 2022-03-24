@@ -8,7 +8,6 @@ pub struct TextBuffer {
     file_path: Option<&'static str>,
     pub tree: RBTree<PieceAdapter>,
     original: Vec<u8>,
-    encoding: CharacterEncoding,
     info: TextBufferInfo,
 }
 
@@ -20,7 +19,6 @@ impl From<&'static str> for TextBuffer {
         }
 
         let bytes = original.as_slice();
-        let encoding = CharacterEncoding::from(bytes);
         let info = TextBufferInfo::new(bytes);
 
         let mut tree = RBTree::new(PieceAdapter::new());
@@ -43,7 +41,6 @@ impl From<&'static str> for TextBuffer {
             file_path: Some(file_path),
             tree,
             original,
-            encoding,
             info,
         }
     }
@@ -83,8 +80,9 @@ impl From<&[u8]> for CharacterEncoding {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TextBufferInfo {
+    encoding: CharacterEncoding,
     line_starts: Vec<i32>,
     line_break_count: LineBreakCount,
     // is_basic_ascii: bool,
@@ -94,18 +92,10 @@ pub struct TextBufferInfo {
     // normalize_eol: bool,
 }
 
-impl Default for TextBufferInfo {
-    fn default() -> TextBufferInfo {
-        TextBufferInfo {
-            line_starts: vec![0],
-            line_break_count: Default::default(),
-        }
-    }
-}
-
 impl TextBufferInfo {
     fn new(bytes: &[u8]) -> TextBufferInfo {
-        let mut line_starts = TextBufferInfo::default();
+        let mut info = TextBufferInfo::default();
+        info.encoding = CharacterEncoding::from(bytes);
 
         let mut enumerate = bytes.iter().enumerate();
         while let Some((i, c)) = enumerate.next() {
@@ -113,25 +103,25 @@ impl TextBufferInfo {
                 '\r' => match enumerate.nth(i + 1) {
                     Some((_, c)) => match *c as char {
                         '\r' => {
-                            line_starts.line_starts.push(i as i32 + 2);
-                            line_starts.line_break_count.crlf += 1;
+                            info.line_starts.push(i as i32 + 2);
+                            info.line_break_count.crlf += 1;
                         }
                         _ => {
-                            line_starts.line_starts.push(i as i32 + 1);
-                            line_starts.line_break_count.cr += 1;
+                            info.line_starts.push(i as i32 + 1);
+                            info.line_break_count.cr += 1;
                         }
                     },
                     None => {}
                 },
                 '\n' => {
-                    line_starts.line_starts.push(i as i32 + 1);
-                    line_starts.line_break_count.lf += 1;
+                    info.line_starts.push(i as i32 + 1);
+                    info.line_break_count.lf += 1;
                 }
                 _ => {}
             }
         }
 
-        line_starts
+        info
     }
 }
 
