@@ -25,6 +25,7 @@ impl From<&'static str> for TextBuffer {
 
         let mut tree = RBTree::new(PieceAdapter::new());
         let piece = Piece::new(
+            0,
             BufferCursor::new(0, 0),
             BufferCursor::new(
                 info.line_starts.len() as i32 - 1,
@@ -144,6 +145,7 @@ struct LineBreakCount {
 #[derive(Default, Debug)]
 pub struct Piece {
     link: AtomicLink,
+    offset: i32,
     start: BufferCursor,
     end: BufferCursor,
     length: i32,
@@ -154,13 +156,14 @@ intrusive_adapter!(pub PieceAdapter = Box<Piece>: Piece { link: AtomicLink });
 impl<'a> KeyAdapter<'a> for PieceAdapter {
     type Key = i32;
     fn get_key(&self, e: &'a Piece) -> i32 {
-        e.start.line
+        e.offset
     }
 }
 
 impl Piece {
-    pub fn new(start: BufferCursor, end: BufferCursor, length: i32, line_feed_count: i32) -> Self {
+    pub fn new(offset: i32, start: BufferCursor, end: BufferCursor, length: i32, line_feed_count: i32) -> Self {
         Self {
+            offset,
             start,
             end,
             length,
