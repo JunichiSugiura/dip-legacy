@@ -4,26 +4,36 @@ use bevy::{app::prelude::*, ecs::prelude::*};
 #[derive(Default)]
 pub struct DocumentPlugin;
 
-static CHANGE_DETECTION: &str = "change_detection";
-
 impl Plugin for DocumentPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<NewDocument>()
             .add_event::<OpenDocument>()
+            .add_event::<DocumentInsert>()
             .add_stage_after(
                 CoreStage::Update,
-                CHANGE_DETECTION,
+                DipStage::Notify,
                 SystemStage::single_threaded(),
             )
-            .add_startup_system(setup)
+            .add_startup_system(debug_setup)
             .add_system(new_document)
             .add_system(open_document)
-            .add_system_to_stage(CHANGE_DETECTION, send_document_added);
+            .add_system(insert)
+            .add_system_to_stage(DipStage::Notify, send_document_added);
     }
 }
 
-fn setup(mut new_doc: EventWriter<OpenDocument>) {
+fn debug_setup(mut new_doc: EventWriter<OpenDocument>) {
     new_doc.send(OpenDocument::new("./README.md".into()));
+}
+
+fn insert(mut events: EventReader<DocumentInsert>, q: Query<(Entity, &TextBuffer)>) {
+    for e in events.iter() {
+        for (id, b) in q.iter() {
+            if id == e.entity {
+                b.insert(e.offset, e.text);
+            }
+        }
+    }
 }
 
 fn new_document(mut events: EventReader<NewDocument>, mut commands: Commands) {

@@ -47,12 +47,22 @@ impl From<&'static str> for TextBuffer {
 }
 
 impl TextBuffer {
-    pub fn insert(offset: i32, text: &str) {
-        todo!();
+    pub fn insert(&self, offset: i32, text: &str) {
+        if self.tree.is_empty() {
+            println!("tree is empty");
+        } else {
+            println!("tree is not empty");
+        }
+
+        todo!("insert");
     }
 
-    pub fn delete(offset: i32, count: i32) {
-        todo!();
+    pub fn delete(&self, offset: i32, count: i32) {
+        todo!("delete");
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        todo!("as_str");
     }
 }
 
@@ -151,7 +161,13 @@ impl<'a> KeyAdapter<'a> for PieceAdapter {
 }
 
 impl Piece {
-    pub fn new(offset: i32, start: BufferCursor, end: BufferCursor, length: i32, line_feed_count: i32) -> Self {
+    pub fn new(
+        offset: i32,
+        start: BufferCursor,
+        end: BufferCursor,
+        length: i32,
+        line_feed_count: i32,
+    ) -> Self {
         Self {
             offset,
             start,
@@ -172,5 +188,31 @@ pub struct BufferCursor {
 impl BufferCursor {
     fn new(line: i32, column: i32) -> Self {
         Self { line, column }
+    }
+}
+
+#[cfg(test)]
+mod inserts_and_deletes {
+    use crate::buffer::TextBuffer;
+    #[test]
+    fn basic_insert_and_delete() {
+        let buffer = TextBuffer::default();
+        buffer.insert(0, "This is a document with some text.");
+        assert_eq!(
+            buffer.as_str(),
+            "This is a document with some text."
+        );
+
+        buffer.insert(34, "This is some more text to insert at offset 34.");
+        assert_eq!(
+            buffer.as_str(),
+            "This is a document with some text.This is some more text to insert at offset 34."
+        );
+
+        buffer.delete(42, 5);
+        assert_eq!(
+            buffer.as_str(),
+            "This is a document with some text.This is more text to insert at offset 34."
+        );
     }
 }
