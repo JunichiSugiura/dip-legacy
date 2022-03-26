@@ -6,7 +6,7 @@ use std::{convert::From, fs};
 #[derive(Component, Default, Debug)]
 pub struct TextBuffer {
     file_path: Option<&'static str>,
-    pub tree: RBTree<PieceAdapter>,
+    tree: RBTree<PieceAdapter>,
     original: Vec<u8>,
     info: TextBufferInfo,
 }

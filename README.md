@@ -16,5 +16,8 @@ cargo run -p dip_desktop
 
 # Test
 cargo test --all
+
+# Docs
+cargo doc --open --no-deps
 ```
 
