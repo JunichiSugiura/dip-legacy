@@ -1,7 +1,7 @@
 use bevy::ecs::prelude::*;
 use intrusive_collections::intrusive_adapter;
 use intrusive_collections::{rbtree::AtomicLink, KeyAdapter, RBTree};
-use std::{convert::From, fs};
+use std::{convert::From, fs, str};
 
 #[derive(Component, Default, Debug)]
 pub struct TextBuffer {
@@ -13,48 +13,42 @@ pub struct TextBuffer {
 
 impl From<&'static str> for TextBuffer {
     fn from(file_path: &'static str) -> TextBuffer {
-        let original = fs::read(file_path.clone()).expect("Failed to read file");
-        if original.is_empty() {
-            return TextBuffer::default();
-        }
+        let mut buffer = TextBuffer::default();
+        let bytes = fs::read(file_path.clone()).expect("Failed to read file");
 
-        let bytes = original.as_slice();
-        let info = TextBufferInfo::new(bytes);
+        if bytes.is_empty() {
+            return buffer;
+        } else {
+            let text = str::from_utf8(&bytes).expect("Invalid UTF-8 sequence: {}");
+            buffer.insert(0, text);
 
-        let mut tree = RBTree::new(PieceAdapter::new());
-        let piece = Piece::new(
-            0,
-            BufferCursor::new(0, 0),
-            BufferCursor::new(
-                info.line_starts.len() as i32 - 1,
-                match info.line_starts.last() {
-                    Some(x) => original.len() as i32 - x,
-                    None => 0,
-                },
-            ),
-            bytes.len() as i32,
-            info.line_starts.len() as i32 - 1,
-        );
-        tree.insert(Box::new(piece));
-
-        TextBuffer {
-            file_path: Some(file_path),
-            tree,
-            original,
-            info,
+            buffer
         }
     }
 }
 
 impl TextBuffer {
-    pub fn insert(&self, offset: i32, text: &str) {
+    pub fn insert(&mut self, offset: i32, text: &str) {
         if self.tree.is_empty() {
-            println!("tree is empty");
+            let bytes = text.as_bytes();
+            let info = TextBufferInfo::new(bytes);
+            let piece = Piece::new(
+                offset,
+                BufferCursor::default(),
+                BufferCursor::new(
+                    info.line_starts.len() as i32 - 1,
+                    match info.line_starts.last() {
+                        Some(x) => text.len() as i32 - x,
+                        None => 0,
+                    },
+                ),
+                bytes.len() as i32,
+                info.line_starts.len() as i32 - 1,
+            );
+            self.tree.insert(Box::new(piece));
         } else {
-            println!("tree is not empty");
+            todo!("check offset to see if it's within the existing node");
         }
-
-        todo!("insert");
     }
 
     pub fn delete(&self, offset: i32, count: i32) {
@@ -62,7 +56,7 @@ impl TextBuffer {
     }
 
     pub fn as_str(&self) -> &'static str {
-        todo!("as_str");
+        todo!("iterate each pieces in the tree to create fully concateneted str");
     }
 }
 
@@ -196,14 +190,16 @@ mod inserts_and_deletes {
     use crate::buffer::TextBuffer;
     #[test]
     fn basic_insert_and_delete() {
-        let buffer = TextBuffer::default();
+        let mut buffer = TextBuffer::default();
         buffer.insert(0, "This is a document with some text.");
         assert_eq!(
             buffer.as_str(),
             "This is a document with some text."
         );
+        println!("yo");
 
         buffer.insert(34, "This is some more text to insert at offset 34.");
+        println!("yo2");
         assert_eq!(
             buffer.as_str(),
             "This is a document with some text.This is some more text to insert at offset 34."

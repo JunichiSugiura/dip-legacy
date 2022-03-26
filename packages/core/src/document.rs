@@ -27,13 +27,13 @@ fn debug_setup(mut new_doc: EventWriter<OpenDocument>) {
 }
 
 fn insert(mut events: EventReader<DocumentInsert>, q: Query<(Entity, &TextBuffer)>) {
-    for e in events.iter() {
-        for (id, b) in q.iter() {
-            if id == e.entity {
-                b.insert(e.offset, e.text);
-            }
-        }
-    }
+    // for e in events.iter() {
+    //     for (id, b) in q.iter() {
+    //         if id == e.entity {
+    //             b.insert(e.offset, e.text);
+    //         }
+    //     }
+    // }
 }
 
 fn new_document(mut events: EventReader<NewDocument>, mut commands: Commands) {
