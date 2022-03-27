@@ -1,6 +1,9 @@
 use bevy::ecs::prelude::*;
 use intrusive_collections::intrusive_adapter;
-use intrusive_collections::{rbtree::AtomicLink, KeyAdapter, RBTree};
+use intrusive_collections::{
+    rbtree::{AtomicLink, Cursor},
+    KeyAdapter, RBTree,
+};
 use std::{convert::From, fs, str};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -28,6 +31,26 @@ impl From<&'static str> for TextBuffer {
     }
 }
 
+struct NodePosition<'a> {
+    cursor: Cursor<'a, PieceAdapter>,
+    remainder: i32,
+    node_start_offset: i32,
+}
+
+impl<'a> NodePosition<'a> {
+    fn new(
+        cursor: Cursor<'a, PieceAdapter>,
+        remainder: i32,
+        node_start_offset: i32,
+    ) -> NodePosition {
+        NodePosition {
+            cursor,
+            remainder,
+            node_start_offset,
+        }
+    }
+}
+
 impl TextBuffer {
     pub fn insert(&mut self, offset: i32, text: &str) {
         if self.tree.is_empty() {
@@ -46,11 +69,53 @@ impl TextBuffer {
             );
             let line_feed_count = &self.get_line_feed_count(&start, &end);
 
-            let piece = Piece::new(text, offset, start, end, text.len() as i32, *line_feed_count);
+            let piece = Piece::new(
+                text,
+                offset,
+                start,
+                end,
+                text.len() as i32,
+                *line_feed_count,
+            );
             self.tree.insert(Box::new(piece));
         } else {
-            todo!("check offset to see if it's within the existing node");
+            let position = self.node_at(offset);
         }
+    }
+
+    fn node_at<'a>(&'a self, mut offset: i32) -> NodePosition<'a> {
+        /* let cache = self.search_cache.get(offset); */
+        /* if (cache) { */
+        /*     NodePosition::new(cache.cursor, cache.node_start_offset, offset - cache.node_start_offset); */
+        /* } */
+
+        let mut c = self.tree.front();
+        let mut node_start_offset = 0;
+        let mut res = None;
+
+        while !c.is_null() {
+            match c.get() {
+                Some(p) => {
+                    if p.size_left > offset {
+                        c.move_prev();
+                    } else if p.size_left + p.len >= offset {
+                        node_start_offset += p.size_left;
+                        let position =
+                            NodePosition::new(c, offset - p.size_left, node_start_offset);
+                        // self.search_cache.set(res);
+                        res = Some(position);
+                        break;
+                    } else {
+                        offset -= p.size_left + p.len;
+                        node_start_offset += p.size_left + p.len;
+                        c.move_next();
+                    }
+                }
+                None => {}
+            }
+        }
+
+        res.expect("Tree must NOT be empty when calling node_at method")
     }
 
     fn get_line_feed_count(&self, start: &BufferCursor, end: &BufferCursor) -> i32 {
@@ -171,12 +236,16 @@ struct LineBreakCount {
 #[derive(Default, Debug)]
 pub struct Piece {
     link: AtomicLink,
-    text: String,
+
     offset: i32,
+    text: String,
     start: BufferCursor,
     end: BufferCursor,
     len: i32,
     line_feed_count: i32,
+
+    size_left: i32,
+    left_lf: i32,
 }
 
 intrusive_adapter!(pub PieceAdapter = Box<Piece>: Piece { link: AtomicLink });
