@@ -2,26 +2,27 @@ use bevy::ecs::prelude::*;
 use intrusive_collections::intrusive_adapter;
 use intrusive_collections::{rbtree::AtomicLink, KeyAdapter, RBTree};
 use std::{convert::From, fs, str};
+use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Component, Default, Debug)]
 pub struct TextBuffer {
     file_path: Option<&'static str>,
     tree: RBTree<PieceAdapter>,
-    original: Vec<u8>,
+    original: String,
     info: TextBufferInfo,
 }
 
 impl From<&'static str> for TextBuffer {
     fn from(file_path: &'static str) -> TextBuffer {
         let mut buffer = TextBuffer::default();
-        let bytes = fs::read(file_path.clone()).expect("Failed to read file");
+        let text = fs::read_to_string(file_path.clone()).expect("Failed to read file");
+        buffer.original = text.clone();
+        buffer.info = TextBufferInfo::new(text.as_str());
 
-        if bytes.is_empty() {
+        if text.is_empty() {
             return buffer;
         } else {
-            let text = str::from_utf8(&bytes).expect("Invalid UTF-8 sequence: {}");
-            buffer.insert(0, text);
-
+            buffer.insert(0, text.as_str());
             buffer
         }
     }
@@ -30,33 +31,64 @@ impl From<&'static str> for TextBuffer {
 impl TextBuffer {
     pub fn insert(&mut self, offset: i32, text: &str) {
         if self.tree.is_empty() {
-            let bytes = text.as_bytes();
-            let info = TextBufferInfo::new(bytes);
-            let piece = Piece::new(
-                offset,
-                BufferCursor::default(),
-                BufferCursor::new(
-                    info.line_starts.len() as i32 - 1,
-                    match info.line_starts.last() {
-                        Some(x) => text.len() as i32 - x,
-                        None => 0,
-                    },
-                ),
-                bytes.len() as i32,
-                info.line_starts.len() as i32 - 1,
+            let end_index = if self.info.line_starts.len() == 0 {
+                0
+            } else {
+                self.info.line_starts.len() as i32 - 1
+            };
+            let start = BufferCursor::default();
+            let end = BufferCursor::new(
+                end_index,
+                match self.info.line_starts.last() {
+                    Some(x) => text.len() as i32 - x,
+                    None => 0,
+                },
             );
+            let line_feed_count = &self.get_line_feed_count(&start, &end);
+
+            let piece = Piece::new(text, offset, start, end, text.len() as i32, *line_feed_count);
             self.tree.insert(Box::new(piece));
         } else {
             todo!("check offset to see if it's within the existing node");
         }
     }
 
-    pub fn delete(&self, offset: i32, count: i32) {
+    fn get_line_feed_count(&self, start: &BufferCursor, end: &BufferCursor) -> i32 {
+        if end.column == 0 {
+            return 0;
+        }
+
+        if end.line == self.info.line_starts.len() as i32 - 1 {
+            return end.line - start.line;
+        }
+
+        let next_line_start_offset = self.info.line_starts[end.line as usize + 1];
+        let end_offset = self.info.line_starts[end.line as usize] + end.column;
+        if next_line_start_offset > end_offset + 1 {
+            // there are more than 1 character after end, which means it can't be \n
+            return end.line - start.line;
+        }
+        // endOffset + 1 === nextLineStartOffset
+        // character at endOffset is \n, so we check the character before first
+        // if character at endOffset is \r, end.column is 0 and we can't get here.
+        let previous_char_offset = end_offset as usize - 1; // end.column > 0 so it's okay.
+        if self.original.graphemes(true).collect::<Vec<&str>>()[previous_char_offset] == "\r" {
+            return end.line - start.line + 1;
+        } else {
+            return end.line - start.line;
+        }
+    }
+
+    pub fn delete(&self, _offset: i32, _count: i32) {
         todo!("delete");
     }
 
-    pub fn as_str(&self) -> &'static str {
-        todo!("iterate each pieces in the tree to create fully concateneted str");
+    pub fn to_string(&self) -> String {
+        let mut text = String::new();
+        for p in self.tree.iter() {
+            text.insert_str(p.offset as usize, p.text.as_str());
+        }
+        text
     }
 }
 
@@ -74,9 +106,9 @@ impl Default for CharacterEncoding {
     }
 }
 
-impl From<&[u8]> for CharacterEncoding {
-    fn from(s: &[u8]) -> Self {
-        if s.starts_with(UTF8_BOM.as_bytes()) {
+impl From<&str> for CharacterEncoding {
+    fn from(s: &str) -> Self {
+        if s.starts_with(UTF8_BOM) {
             CharacterEncoding::Utf8WithBom
         } else {
             CharacterEncoding::Utf8
@@ -97,11 +129,11 @@ pub struct TextBufferInfo {
 }
 
 impl TextBufferInfo {
-    fn new(bytes: &[u8]) -> TextBufferInfo {
+    fn new(text: &str) -> TextBufferInfo {
         let mut info = TextBufferInfo::default();
-        info.encoding = CharacterEncoding::from(bytes);
+        info.encoding = CharacterEncoding::from(text);
 
-        let mut enumerate = bytes.iter().enumerate();
+        let mut enumerate = text.as_bytes().iter().enumerate();
         while let Some((i, c)) = enumerate.next() {
             match *c as char {
                 '\r' => match enumerate.nth(i + 1) {
@@ -139,10 +171,11 @@ struct LineBreakCount {
 #[derive(Default, Debug)]
 pub struct Piece {
     link: AtomicLink,
+    text: String,
     offset: i32,
     start: BufferCursor,
     end: BufferCursor,
-    length: i32,
+    len: i32,
     line_feed_count: i32,
 }
 
@@ -156,17 +189,19 @@ impl<'a> KeyAdapter<'a> for PieceAdapter {
 
 impl Piece {
     pub fn new(
+        text: &str,
         offset: i32,
         start: BufferCursor,
         end: BufferCursor,
-        length: i32,
+        len: i32,
         line_feed_count: i32,
     ) -> Self {
         Self {
+            text: text.to_string(),
             offset,
             start,
             end,
-            length,
+            len,
             line_feed_count,
             ..Default::default()
         }
@@ -192,22 +227,17 @@ mod inserts_and_deletes {
     fn basic_insert_and_delete() {
         let mut buffer = TextBuffer::default();
         buffer.insert(0, "This is a document with some text.");
-        assert_eq!(
-            buffer.as_str(),
-            "This is a document with some text."
-        );
-        println!("yo");
+        assert_eq!(buffer.to_string(), "This is a document with some text.");
 
         buffer.insert(34, "This is some more text to insert at offset 34.");
-        println!("yo2");
         assert_eq!(
-            buffer.as_str(),
+            buffer.to_string(),
             "This is a document with some text.This is some more text to insert at offset 34."
         );
 
         buffer.delete(42, 5);
         assert_eq!(
-            buffer.as_str(),
+            buffer.to_string(),
             "This is a document with some text.This is more text to insert at offset 34."
         );
     }

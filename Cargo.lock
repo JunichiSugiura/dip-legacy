@@ -1178,6 +1178,7 @@ dependencies = [
  "bevy",
  "intrusive-collections",
  "leafwing-input-manager",
+ "unicode-segmentation",
 ]
 
 [[package]]

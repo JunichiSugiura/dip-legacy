@@ -17,7 +17,7 @@ impl Plugin for DocumentPlugin {
             .add_startup_system(debug_setup)
             .add_system(new_document)
             .add_system(open_document)
-            .add_system(insert)
+            // .add_system(insert)
             .add_system_to_stage(DipStage::Notify, send_document_added);
     }
 }
@@ -26,15 +26,15 @@ fn debug_setup(mut new_doc: EventWriter<OpenDocument>) {
     new_doc.send(OpenDocument::new("./README.md".into()));
 }
 
-fn insert(mut events: EventReader<DocumentInsert>, q: Query<(Entity, &TextBuffer)>) {
-    // for e in events.iter() {
-    //     for (id, b) in q.iter() {
-    //         if id == e.entity {
-    //             b.insert(e.offset, e.text);
-    //         }
-    //     }
-    // }
-}
+// fn insert(mut events: EventReader<DocumentInsert>, q: Query<(Entity, &TextBuffer)>) {
+//     for e in events.iter() {
+//         for (id, b) in q.iter() {
+//             if id == e.entity {
+//                 b.insert(e.offset, e.text);
+//             }
+//         }
+//     }
+// }
 
 fn new_document(mut events: EventReader<NewDocument>, mut commands: Commands) {
     for _ in events.iter() {
