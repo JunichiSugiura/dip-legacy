@@ -10,9 +10,10 @@ use unicode_segmentation::UnicodeSegmentation;
 #[derive(Component, Default, Debug)]
 pub struct TextBuffer {
     file_path: Option<&'static str>,
-    tree: RBTree<PieceAdapter>,
+    tree: RBTree<NodeAdapter>,
     original: String,
     info: TextBufferInfo,
+    last_change_buffer_pos: BufferCursor,
 }
 
 impl From<&'static str> for TextBuffer {
@@ -27,26 +28,6 @@ impl From<&'static str> for TextBuffer {
         } else {
             buffer.insert(0, text.as_str());
             buffer
-        }
-    }
-}
-
-struct NodePosition<'a> {
-    cursor: Cursor<'a, PieceAdapter>,
-    remainder: i32,
-    node_start_offset: i32,
-}
-
-impl<'a> NodePosition<'a> {
-    fn new(
-        cursor: Cursor<'a, PieceAdapter>,
-        remainder: i32,
-        node_start_offset: i32,
-    ) -> NodePosition {
-        NodePosition {
-            cursor,
-            remainder,
-            node_start_offset,
         }
     }
 }
@@ -70,16 +51,31 @@ impl TextBuffer {
             let line_feed_count = &self.get_line_feed_count(&start, &end);
 
             let piece = Piece::new(
-                text,
                 offset,
+                text.to_string(),
                 start,
                 end,
                 text.len() as i32,
                 *line_feed_count,
             );
-            self.tree.insert(Box::new(piece));
+            let node = Node::from(piece);
+            self.tree.insert(Box::new(node));
         } else {
             let position = self.node_at(offset);
+            match position.cursor.get() {
+                Some(node) => {
+                    if node.piece.offset == 0
+                        && node.piece.end.line == self.last_change_buffer_pos.line
+                        && node.piece.end.column == self.last_change_buffer_pos.column
+                        && (position.node_start_offset + node.piece.len == offset)
+                    {
+                        // self.appendToNode(node, value);
+                        // self.compute_buffer_metadata();
+                        return;
+                    }
+                }
+                None => {}
+            }
         }
     }
 
@@ -95,19 +91,19 @@ impl TextBuffer {
 
         while !c.is_null() {
             match c.get() {
-                Some(p) => {
-                    if p.size_left > offset {
+                Some(node) => {
+                    if node.size_left > offset {
                         c.move_prev();
-                    } else if p.size_left + p.len >= offset {
-                        node_start_offset += p.size_left;
+                    } else if node.size_left + node.piece.len >= offset {
+                        node_start_offset += node.size_left;
                         let position =
-                            NodePosition::new(c, offset - p.size_left, node_start_offset);
+                            NodePosition::new(c, offset - node.size_left, node_start_offset);
                         // self.search_cache.set(res);
                         res = Some(position);
                         break;
                     } else {
-                        offset -= p.size_left + p.len;
-                        node_start_offset += p.size_left + p.len;
+                        offset -= node.size_left + node.piece.len;
+                        node_start_offset += node.size_left + node.piece.len;
                         c.move_next();
                     }
                 }
@@ -150,14 +146,34 @@ impl TextBuffer {
 
     pub fn to_string(&self) -> String {
         let mut text = String::new();
-        for p in self.tree.iter() {
-            text.insert_str(p.offset as usize, p.text.as_str());
+        for node in self.tree.iter() {
+            text.insert_str(node.piece.offset as usize, node.piece.text.as_str());
         }
         text
     }
 }
 
 const UTF8_BOM: &str = "\u{feff}";
+
+struct NodePosition<'a> {
+    cursor: Cursor<'a, NodeAdapter>,
+    remainder: i32,
+    node_start_offset: i32,
+}
+
+impl<'a> NodePosition<'a> {
+    fn new(
+        cursor: Cursor<'a, NodeAdapter>,
+        remainder: i32,
+        node_start_offset: i32,
+    ) -> NodePosition {
+        NodePosition {
+            cursor,
+            remainder,
+            node_start_offset,
+        }
+    }
+}
 
 #[derive(Debug)]
 enum CharacterEncoding {
@@ -234,44 +250,55 @@ struct LineBreakCount {
 }
 
 #[derive(Default, Debug)]
-pub struct Piece {
+pub struct Node {
     link: AtomicLink,
+    size_left: i32,
+    left_lf: i32,
+    piece: Piece,
+}
 
+#[derive(Default, Debug)]
+struct Piece {
     offset: i32,
     text: String,
     start: BufferCursor,
     end: BufferCursor,
     len: i32,
     line_feed_count: i32,
-
-    size_left: i32,
-    left_lf: i32,
-}
-
-intrusive_adapter!(pub PieceAdapter = Box<Piece>: Piece { link: AtomicLink });
-impl<'a> KeyAdapter<'a> for PieceAdapter {
-    type Key = i32;
-    fn get_key(&self, e: &'a Piece) -> i32 {
-        e.offset
-    }
 }
 
 impl Piece {
-    pub fn new(
-        text: &str,
+    fn new(
         offset: i32,
+        text: String,
         start: BufferCursor,
         end: BufferCursor,
         len: i32,
         line_feed_count: i32,
-    ) -> Self {
-        Self {
-            text: text.to_string(),
+    ) -> Piece {
+        Piece {
             offset,
+            text,
             start,
             end,
             len,
             line_feed_count,
+        }
+    }
+}
+
+intrusive_adapter!(pub NodeAdapter = Box<Node>: Node { link: AtomicLink });
+impl<'a> KeyAdapter<'a> for NodeAdapter {
+    type Key = i32;
+    fn get_key(&self, e: &'a Node) -> i32 {
+        e.piece.offset
+    }
+}
+
+impl From<Piece> for Node {
+    fn from(piece: Piece) -> Self {
+        Self {
+            piece,
             ..Default::default()
         }
     }
