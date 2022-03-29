@@ -187,7 +187,7 @@ pub struct TextBufferInfo {
     eol: EOL,
     // contains_rtl: bool,
     // contains_unusual_line_terminators: bool,
-    // is_basic_ascii: bool,
+    is_ascii: bool,
     // normalize_eol: bool,
 }
 
@@ -195,6 +195,7 @@ impl TextBufferInfo {
     fn new(text: &String) -> TextBufferInfo {
         let mut info = TextBufferInfo::default();
         info.encoding = CharacterEncoding::from(text);
+        info.is_ascii = true;
 
         let enumerate = &mut text.graphemes(true).enumerate();
         while let Some((i, c)) = enumerate.next() {
@@ -218,7 +219,11 @@ impl TextBufferInfo {
                     info.line_starts.push(i as i32 + 1);
                     info.line_break_count.lf += 1;
                 }
-                _ => {}
+                _ => {
+                    if !c.is_ascii() {
+                        info.is_ascii = false
+                    }
+                }
             }
         }
 
