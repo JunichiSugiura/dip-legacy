@@ -13,7 +13,7 @@ pub struct TextBuffer {
     tree: RBTree<NodeAdapter>,
     original: String,
     info: TextBufferInfo,
-    last_change_buffer_pos: BufferCursor,
+    last_change_buffer_pos: BufferCursor, // TODO: move to TextBufferCache
 }
 
 impl From<&'static str> for TextBuffer {
@@ -21,12 +21,15 @@ impl From<&'static str> for TextBuffer {
         let mut buffer = TextBuffer::default();
         let text = fs::read_to_string(file_path.clone()).expect("Failed to read file");
         buffer.original = text.clone();
-        buffer.info = TextBufferInfo::new(text.as_str());
+        buffer.info = TextBufferInfo::new(&text);
 
         if text.is_empty() {
             return buffer;
         } else {
-            buffer.insert(0, text.as_str());
+            buffer.insert(
+                0,
+                &text,
+            );
             buffer
         }
     }
@@ -69,7 +72,7 @@ impl TextBuffer {
                         && node.piece.end.column == self.last_change_buffer_pos.column
                         && (position.node_start_offset + node.piece.len == offset)
                     {
-                        // self.appendToNode(node, value);
+                        // self.append_to_node(node, value);
                         // self.compute_buffer_metadata();
                         return;
                     }
@@ -126,14 +129,16 @@ impl TextBuffer {
         let next_line_start_offset = self.info.line_starts[end.line as usize + 1];
         let end_offset = self.info.line_starts[end.line as usize] + end.column;
         if next_line_start_offset > end_offset + 1 {
-            // there are more than 1 character after end, which means it can't be \n
             return end.line - start.line;
         }
-        // endOffset + 1 === nextLineStartOffset
-        // character at endOffset is \n, so we check the character before first
-        // if character at endOffset is \r, end.column is 0 and we can't get here.
-        let previous_char_offset = end_offset as usize - 1; // end.column > 0 so it's okay.
-        if self.original.graphemes(true).collect::<Vec<&str>>()[previous_char_offset] == "\r" {
+
+        let previous_char_offset = end_offset as usize - 1;
+        if self
+            .original
+            .graphemes(true)
+            .collect::<Vec<&str>>()[previous_char_offset]
+            == "\r"
+        {
             return end.line - start.line + 1;
         } else {
             return end.line - start.line;
@@ -174,6 +179,65 @@ impl<'a> NodePosition<'a> {
         }
     }
 }
+#[derive(Debug, Default)]
+pub struct TextBufferInfo {
+    encoding: CharacterEncoding,
+    line_starts: Vec<i32>,
+    line_break_count: LineBreakCount,
+    eol: EOL,
+    // contains_rtl: bool,
+    // contains_unusual_line_terminators: bool,
+    // is_basic_ascii: bool,
+    // normalize_eol: bool,
+}
+
+impl TextBufferInfo {
+    fn new(text: &String) -> TextBufferInfo {
+        let mut info = TextBufferInfo::default();
+        info.encoding = CharacterEncoding::from(text);
+
+        let enumerate = &mut text.graphemes(true).enumerate();
+        while let Some((i, c)) = enumerate.next() {
+            match c {
+                "\r" => match enumerate.nth(i + 1) {
+                    Some((_, c)) => match c {
+                        "\n" => {
+                            info.eol = EOL::CRLF;
+                            info.line_starts.push(i as i32 + 2);
+                            info.line_break_count.crlf += 1;
+                        }
+                        _ => {
+                            info.eol = EOL::CR;
+                            info.line_starts.push(i as i32 + 1);
+                            info.line_break_count.cr += 1;
+                        }
+                    },
+                    None => {}
+                },
+                "\n" => {
+                    info.line_starts.push(i as i32 + 1);
+                    info.line_break_count.lf += 1;
+                }
+                _ => {}
+            }
+        }
+
+        info
+    }
+}
+
+#[derive(Debug)]
+enum EOL {
+    LF,
+    CR,
+    CRLF,
+}
+
+impl Default for EOL {
+    fn default() -> EOL {
+        EOL::LF
+    }
+}
 
 #[derive(Debug)]
 enum CharacterEncoding {
@@ -187,8 +251,8 @@ impl Default for CharacterEncoding {
     }
 }
 
-impl From<&str> for CharacterEncoding {
-    fn from(s: &str) -> Self {
+impl From<&String> for CharacterEncoding {
+    fn from(s: &String) -> Self {
         if s.starts_with(UTF8_BOM) {
             CharacterEncoding::Utf8WithBom
         } else {
@@ -197,50 +261,6 @@ impl From<&str> for CharacterEncoding {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct TextBufferInfo {
-    encoding: CharacterEncoding,
-    line_starts: Vec<i32>,
-    line_break_count: LineBreakCount,
-    // is_basic_ascii: bool,
-    // contains_rtl: bool,
-    // contains_unusual_line_terminators: bool,
-    // is_basic_ascii: bool,
-    // normalize_eol: bool,
-}
-
-impl TextBufferInfo {
-    fn new(text: &str) -> TextBufferInfo {
-        let mut info = TextBufferInfo::default();
-        info.encoding = CharacterEncoding::from(text);
-
-        let mut enumerate = text.as_bytes().iter().enumerate();
-        while let Some((i, c)) = enumerate.next() {
-            match *c as char {
-                '\r' => match enumerate.nth(i + 1) {
-                    Some((_, c)) => match *c as char {
-                        '\r' => {
-                            info.line_starts.push(i as i32 + 2);
-                            info.line_break_count.crlf += 1;
-                        }
-                        _ => {
-                            info.line_starts.push(i as i32 + 1);
-                            info.line_break_count.cr += 1;
-                        }
-                    },
-                    None => {}
-                },
-                '\n' => {
-                    info.line_starts.push(i as i32 + 1);
-                    info.line_break_count.lf += 1;
-                }
-                _ => {}
-            }
-        }
-
-        info
-    }
-}
 
 #[derive(Debug, Default)]
 struct LineBreakCount {
