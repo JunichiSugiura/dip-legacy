@@ -1,4 +1,8 @@
-use crate::{buffer::TextBuffer, command::UICommand, event::*};
+use crate::{
+    buffer::{DefaultEOL, TextBuffer},
+    command::UICommand,
+    event::*,
+};
 use bevy::{app::prelude::*, ecs::prelude::*};
 
 #[derive(Default)]
@@ -45,7 +49,7 @@ fn new_document(mut events: EventReader<NewDocument>, mut commands: Commands) {
 
 fn open_document(mut events: EventReader<OpenDocument>, mut commands: Commands) {
     for e in events.iter() {
-        let buffer = TextBuffer::from(e.path);
+        let buffer = TextBuffer::new(e.path, DefaultEOL::LF);
         commands.spawn().insert(buffer);
     }
 }
