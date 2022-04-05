@@ -1,6 +1,6 @@
 use bevy::ecs::prelude::*;
 use intrusive_collections::intrusive_adapter;
-use intrusive_collections::{rbtree::AtomicLink, KeyAdapter, RBTree};
+use intrusive_collections::{rbtree::RBTreeOps, KeyAdapter, RBTree, RBTreeAtomicLink};
 use std::{convert::From, fs, str};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -148,45 +148,55 @@ impl TextBuffer {
         todo!("delete");
     }
 
-    fn adjust_cr_from_next(&mut self, _node: Node, value: &mut String) -> bool {
+    fn adjust_cr_from_next(&mut self, node: Node, value: &mut String) -> bool {
         if !(self.should_check_crlf() && self.end_with_cr(value)) {
             return false;
         }
 
-        todo!("adjust_cr_from_next");
-        // let mut cursor = self.tree.find_mut(&node.piece.offset);
-        // match cursor.as_cursor().get() {
-        //     Some(node) => {
-        //         cursor.as_cursor().move_next();
-        //         if start_with_lf(node, &self.info, &self.original) {
-        //             value.push_str("\n");
+        let mut cursor = self.tree.find_mut(&node.piece.offset);
+        match cursor.as_cursor().get() {
+            Some(node) => {
+                cursor.as_cursor().move_next();
+                if node.start_with_lf(&self.original) {
+                    value.push_str("\n");
 
-        //             if node.piece.len() == 1 {
-        //                 cursor.remove();
-        //             } else {
-        //                 match cursor.get() {
-        //                     Some(node) => {
-        //                         let piece = Piece::new(
-        //                             node.piece.offset,
-        //                             value.to_string(),
-        //                             line_starts,
-        //                             &self.info,
-        //                         );
-        //                         let node = Node::from(piece);
-        //                         cursor.replace_with(Box::new(node)).unwrap();
+                    if node.piece.len() == 1 {
+                        cursor.remove();
+                    } else {
+                        match cursor.get() {
+                            Some(node) => {
+                                let mut node = node.clone();
+                                node.piece = Piece::new(
+                                    node.piece.offset,
+                                    value.to_string(),
+                                    node.piece.line_starts,
+                                );
+                                cursor.replace_with(Box::new(node.clone())).unwrap();
 
-        //                         // update_tree_metadata(this, nextNode, -1, -1);
-        //                     }
-        //                     None => {}
-        //                 }
-        //             }
-        //             return true;
-        //         } else {
-        //             return false;
-        //         }
-        //     }
-        //     None => return false,
-        // }
+                                self.update_tree_metadata(&node, -1, -1);
+                            }
+                            None => {}
+                        }
+                    }
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+            None => return false,
+        }
+    }
+
+    fn update_tree_metadata(&mut self, node: &Node, delta: i32, line_feed_count_delta: i32) {
+        while let Some(key) = node.parent_key {
+            let mut cursor = self.tree.find_mut(&key);
+            let mut node = node.clone();
+            node.left_size += delta;
+            node.left_lf += line_feed_count_delta;
+            cursor
+                .replace_with(Box::new(node))
+                .expect("Failed to replace parent node meta data");
+        }
     }
 
     fn end_with_cr(&self, value: &String) -> bool {
@@ -368,15 +378,35 @@ struct LineBreakCount {
 
 #[derive(Default, Debug, Clone)]
 pub struct Node {
-    link: AtomicLink,
+    link: RBTreeAtomicLink,
     left_size: i32,
     left_lf: i32,
+    parent_key: Option<i32>,
     piece: Piece,
 }
 
 impl Node {
     fn total_size(&self) -> i32 {
         self.left_size + self.piece.len()
+    }
+
+    fn start_with_lf(&self, original: &String) -> bool {
+        if self.piece.line_feed_count == 0 {
+            return false;
+        } else {
+            if self.piece.start.line == self.piece.line_starts.len() as i32 - 1 {
+                return false;
+            }
+
+            let next_line_offset = self.piece.line_starts[self.piece.start.line as usize + 1];
+            let start_offset =
+                self.piece.line_starts[self.piece.start.line as usize] + self.piece.start.column;
+            if next_line_offset > start_offset + 1 {
+                return false;
+            }
+
+            return original.graphemes(true).nth(start_offset as usize) == Some("\n");
+        }
     }
 }
 
@@ -451,7 +481,7 @@ impl Piece {
     }
 }
 
-intrusive_adapter!(pub NodeAdapter = Box<Node>: Node { link: AtomicLink });
+intrusive_adapter!(pub NodeAdapter = Box<Node>: Node { link: RBTreeAtomicLink });
 impl<'a> KeyAdapter<'a> for NodeAdapter {
     type Key = i32;
     fn get_key(&self, node: &'a Node) -> i32 {
@@ -480,31 +510,13 @@ impl BufferCursor {
     }
 }
 
-// fn start_with_lf(node: &Node, info: &TextBufferInfo, original: &String) -> bool {
-//     if node.piece.line_feed_count == 0 {
-//         return false;
-//     } else {
-//         if node.piece.start.line == info.line_starts.len() as i32 - 1 {
-//             return false;
-//         }
-//         let next_line_offset = info.line_starts[node.piece.start.line as usize + 1];
-//         let start_offset =
-//             info.line_starts[node.piece.start.line as usize] + node.piece.start.column;
-//         if next_line_offset > start_offset + 1 {
-//             return false;
-//         }
-
-//         return original.graphemes(true).nth(start_offset as usize) == Some("\n");
-//     }
-// }
-
 #[cfg(test)]
 mod inserts_and_deletes {
     use crate::buffer::TextBuffer;
     #[test]
     fn basic_insert_and_delete() {
         let mut buffer = TextBuffer::default();
-        buffer.insert(0, "T\nh\r\nis is a document with some text.");
+        buffer.insert(0, "This is a document with some text.");
         assert_eq!(buffer.to_string(), "This is a document with some text.");
 
         buffer.insert(34, "This is some more text to insert at offset 34.");
