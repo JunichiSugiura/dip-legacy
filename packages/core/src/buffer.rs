@@ -1,6 +1,6 @@
 use bevy::ecs::prelude::*;
 use intrusive_collections::intrusive_adapter;
-use intrusive_collections::{rbtree::RBTreeOps, KeyAdapter, RBTree, RBTreeAtomicLink};
+use intrusive_collections::{KeyAdapter, RBTree, RBTreeAtomicLink};
 use std::{convert::From, fs, str};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -10,7 +10,7 @@ pub struct TextBuffer {
     tree: RBTree<NodeAdapter>,
     original: String,
     info: TextBufferInfo,
-    last_change_buffer_pos: BufferCursor, // TODO: move to TextBufferCache
+    last_change_buffer_position: BufferCursor, // TODO: move to TextBufferCache
 }
 
 impl TextBuffer {
@@ -23,7 +23,7 @@ impl TextBuffer {
             tree: RBTree::<NodeAdapter>::default(),
             original: original.clone(),
             info,
-            last_change_buffer_pos: BufferCursor::default(),
+            last_change_buffer_position: BufferCursor::default(),
         };
 
         if buffer.original.is_empty() {
@@ -40,52 +40,65 @@ impl TextBuffer {
 
 impl TextBuffer {
     pub fn insert(&mut self, offset: i32, value: &str) {
-        // First insert
         if self.tree.is_empty() {
             let line_starts = TextBufferInfo::get_line_start_slice(&value.to_string());
             let piece = Piece::new(offset, value.to_string(), line_starts);
             let node = Node::from(piece);
             self.tree.insert(Box::new(node));
         } else {
-            let position = self.node_at(offset);
-            let mut value = value.to_string();
-            match self.tree.find(&position.node_key).get() {
-                Some(node) => {
-                    if node.piece.offset == 0
-                        && node.piece.end.line == self.last_change_buffer_pos.line
-                        && node.piece.end.column == self.last_change_buffer_pos.column
-                        && position.node_start_offset + node.piece.len() == offset
-                    {
-                        self.append_to_node(node.clone(), &mut value);
-                        // self.compute_buffer_metadata();
-                        return;
-                    }
-                }
-                None => {}
+            let position = self.get_node_position(offset);
+            let node = self
+                .tree
+                .find(&position.node_key)
+                .get()
+                .expect("Cannot find node")
+                .clone();
+
+            if node.piece.offset == 0
+                && node.piece.end.line == self.last_change_buffer_position.line
+                && node.piece.end.column == self.last_change_buffer_position.column
+                && position.node_start_offset + node.piece.len() == offset
+            {
+                self.append(node, value.to_string());
+            } else if position.node_start_offset == offset {
+                // self.insert_left(node, value);
+                // self.search_cache.validate(offset);
+            } else if position.node_start_offset + node.piece.len() > offset {
+                // self.insert_middle(node, value);
+            } else {
+                // self.insert_right(node, value);
             }
+
+            // self.compute_buffer_metadata();
         }
     }
 
-    fn append_to_node(&mut self, node: Node, value: &mut String) {
-        if self.adjust_cr_from_next(node.clone(), value) {
+    fn append(&mut self, mut node: Node, mut value: String) {
+        if self.adjust_cr_from_next(node.clone(), &mut value) {
             value.push_str("\n");
         }
 
         let start_offset = node.total_size();
-        let mut line_starts = TextBufferInfo::get_line_start_slice(value);
+        let mut line_starts = TextBufferInfo::get_line_start_slice(&mut value);
         for line_start in line_starts.iter_mut() {
             *line_start += start_offset;
         }
 
-        /* const hitCRLF = this.shouldCheckCRLF() && this.startWithLF(value) && this.endWithCR(node); */
-        /* if (hitCRLF) { */
-        /* const prevStartOffset = this._buffers[0].lineStarts[this._buffers[0].lineStarts.length - 2]; */
-        /* (<number[]>this._buffers[0].lineStarts).pop(); */
-        /* // _lastChangeBufferPos is already wrong */
-        /* this._lastChangeBufferPos = { line: this._lastChangeBufferPos.line - 1, column: startOffset - prevStartOffset }; */
-        /* } */
+        let hit_crlf = self.should_check_crlf()
+            && Node::start_with_lf_from_string(&mut value)
+            && self.end_with_cr(&node);
+        if hit_crlf {
+            let prev_start_offset = node.piece.line_starts[node.piece.line_starts.len() - 2];
+            node.piece.line_starts.pop();
+            // last_change_buffer_position is already wrong */
+            self.last_change_buffer_position = BufferCursor::new(
+                self.last_change_buffer_position.line - 1,
+                start_offset - prev_start_offset,
+            );
+        }
+        line_starts.remove(0);
 
-        /* this._buffers[0].lineStarts = (<number[]>this._buffers[0].lineStarts).concat(<number[]>lineStarts.slice(1)); */
+        // this._buffers[0].lineStarts = (<number[]>this._buffers[0].lineStarts).concat(<number[]>lineStarts.slice(1));
         /* const endIndex = this._buffers[0].lineStarts.length - 1; */
         /* const endColumn = this._buffers[0].buffer.length - this._buffers[0].lineStarts[endIndex]; */
         /* const newEnd = { line: endIndex, column: endColumn }; */
@@ -94,19 +107,19 @@ impl TextBuffer {
         /* const newLineFeedCnt = this.getLineFeedCnt(0, node.piece.start, newEnd); */
         /* const lf_delta = newLineFeedCnt - oldLineFeedCnt; */
 
-        /* node.piece = Piece::new( */
-        /* 	node.piece.bufferIndex, */
-        /* 	node.piece.start, */
-        /* 	newEnd, */
-        /* 	newLineFeedCnt, */
-        /* 	newLength */
-        /* ); */
+        // node.piece = Piece::new(
+        // 	node.piece.bufferIndex,
+        // 	node.piece.start,
+        // 	newEnd,
+        // 	newLineFeedCnt,
+        // 	newLength
+        // );
 
         /* this._lastChangeBufferPos = newEnd; */
         /* updateTreeMetadata(this, node, value.length, lf_delta); */
     }
 
-    fn node_at(&self, mut offset: i32) -> NodePosition {
+    fn get_node_position(&self, mut offset: i32) -> NodePosition {
         /* let cache = self.search_cache.get(offset); */
         /* if (cache) { */
         /*     NodePosition::new(cache.cursor, cache.node_start_offset, offset - cache.node_start_offset); */
@@ -114,30 +127,27 @@ impl TextBuffer {
 
         let mut node_start_offset = 0;
         let mut res = None;
-        let mut c = self.tree.front();
+        let mut cursor = self.tree.front();
 
-        while !c.is_null() {
-            match c.get() {
-                Some(node) => {
-                    if node.left_size > offset {
-                        c.move_prev();
-                    } else if node.total_size() >= offset {
-                        node_start_offset += node.left_size;
-                        let position = NodePosition::new(
-                            node.total_size(),
-                            offset - node.left_size,
-                            node_start_offset,
-                        );
-                        // self.search_cache.set(res);
-                        res = Some(position);
-                        break;
-                    } else {
-                        offset -= node.total_size();
-                        node_start_offset += node.total_size();
-                        c.move_next();
-                    }
-                }
-                None => {}
+        while !cursor.is_null() {
+            let node = cursor.get().expect("Cursor is null");
+
+            if node.left_size > offset {
+                cursor.move_prev();
+            } else if node.total_size() >= offset {
+                node_start_offset += node.left_size;
+                let position = NodePosition::new(
+                    node.total_size(),
+                    offset - node.left_size,
+                    node_start_offset,
+                );
+                // self.search_cache.set(res);
+                res = Some(position);
+                break;
+            } else {
+                offset -= node.total_size();
+                node_start_offset += node.total_size();
+                cursor.move_next();
             }
         }
 
@@ -149,7 +159,7 @@ impl TextBuffer {
     }
 
     fn adjust_cr_from_next(&mut self, node: Node, value: &mut String) -> bool {
-        if !(self.should_check_crlf() && self.end_with_cr(value)) {
+        if !(self.should_check_crlf() && Node::end_with_cr_from_string(value)) {
             return false;
         }
 
@@ -187,6 +197,20 @@ impl TextBuffer {
         }
     }
 
+    fn end_with_cr(&self, node: &Node) -> bool {
+        let cursor = self.tree.find(&node.total_size());
+        if cursor.is_null() || node.piece.line_feed_count == 0 {
+            return false;
+        }
+
+        let node = cursor.get().expect("Cursor is null");
+        match node.piece.value.graphemes(true).last() {
+            Some("\r") => true,
+            Some(_) => false,
+            None => false,
+        }
+    }
+
     fn update_tree_metadata(&mut self, node: &Node, delta: i32, line_feed_count_delta: i32) {
         while let Some(key) = node.parent_key {
             let mut cursor = self.tree.find_mut(&key);
@@ -196,16 +220,6 @@ impl TextBuffer {
             cursor
                 .replace_with(Box::new(node))
                 .expect("Failed to replace parent node meta data");
-        }
-    }
-
-    fn end_with_cr(&self, value: &String) -> bool {
-        match value.graphemes(true).last() {
-            Some(c) => match c {
-                "\r" => true,
-                _ => false,
-            },
-            None => false,
         }
     }
 
@@ -261,16 +275,14 @@ impl TextBufferInfo {
         while let Some((i, (grapheme_index, c))) = enumerate.next() {
             match c {
                 "\r" => match enumerate.nth(i + 1) {
-                    Some((_, (grapheme_index, c))) => match c {
-                        "\n" => {
-                            line_starts.push(grapheme_index as i32);
-                            line_break_count.crlf += 1;
-                        }
-                        _ => {
-                            line_starts.push(grapheme_index as i32);
-                            line_break_count.cr += 1;
-                        }
-                    },
+                    Some((_, (grapheme_index, "\n"))) => {
+                        line_starts.push(grapheme_index as i32);
+                        line_break_count.crlf += 1;
+                    }
+                    Some(_) => {
+                        line_starts.push(grapheme_index as i32);
+                        line_break_count.cr += 1;
+                    }
                     None => {
                         line_starts.push(grapheme_index as i32);
                         line_break_count.cr += 1;
@@ -406,6 +418,20 @@ impl Node {
             }
 
             return original.graphemes(true).nth(start_offset as usize) == Some("\n");
+        }
+    }
+
+    fn start_with_lf_from_string(value: &String) -> bool {
+        return value.as_str().graphemes(true).last() == Some("\n");
+    }
+
+    fn end_with_cr_from_string(value: &String) -> bool {
+        match value.graphemes(true).last() {
+            Some(c) => match c {
+                "\r" => true,
+                _ => false,
+            },
+            None => false,
         }
     }
 }
