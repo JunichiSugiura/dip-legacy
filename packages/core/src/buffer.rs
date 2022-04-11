@@ -85,7 +85,7 @@ impl TextBuffer {
                 // self.insert_right(node, value);
             }
 
-            // self.compute_buffer_metadata();
+            self.compute_buffer_metadata();
         }
     }
 
@@ -274,12 +274,28 @@ impl TextBuffer {
         // return buffer.buffer.charCodeAt(new_offset);
     }
 
+    fn compute_buffer_metadata(&mut self) {
+        let mut cursor = self.tree.front();
+        let mut line_feed_count = 0;
+        let mut grapheme_len = 0;
+
+        while let Some(node) = cursor.get() {
+            line_feed_count += node.left_line_feed_count + node.piece.line_feed_count;
+            grapheme_len += node.left_size + node.piece.len;
+            cursor.move_next();
+        }
+
+        self.cache.line_count = line_feed_count;
+        self.cache.len = grapheme_len;
+        self.cache.search.validate(grapheme_len);
+    }
+
     fn update_tree_metadata(&mut self, node: &Node, delta: i32, line_feed_count_delta: i32) {
         while let Some(key) = node.parent_key {
             let mut cursor = self.tree.find_mut(&key);
             let mut node = node.clone();
             node.left_size += delta;
-            node.left_lf += line_feed_count_delta;
+            node.left_line_feed_count += line_feed_count_delta;
             cursor
                 .replace_with(Box::new(node))
                 .expect("Failed to replace parent node meta data");
@@ -563,12 +579,21 @@ impl PieceTreeSearchCache {
         }
         self.line_positions.push(line_position);
     }
+
+    fn validate(&mut self, offset: i32) {
+        self.positions
+            .retain(|p| !(p.node.parent_key.is_none() || p.node_start_offset >= offset));
+        self.line_positions
+            .retain(|p| !(p.node.parent_key.is_none() || p.node_start_offset >= offset));
+    }
 }
 
 #[derive(Default, Debug)]
 struct TextBufferCache {
     last_change: BufferCursor,
     search: PieceTreeSearchCache,
+    line_count: i32,
+    len: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -602,7 +627,7 @@ pub struct Node {
     piece: Piece,
 
     left_size: i32,
-    left_lf: i32,
+    left_line_feed_count: i32,
     parent_key: Option<i32>,
 }
 
