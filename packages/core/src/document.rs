@@ -1,5 +1,5 @@
 use crate::{
-    buffer::{DefaultEOL, TextBuffer},
+    buffer::{DefaultEOL, Document},
     command::UICommand,
     event::*,
 };
@@ -42,19 +42,19 @@ fn debug_setup(mut new_doc: EventWriter<OpenDocument>) {
 
 fn new_document(mut events: EventReader<NewDocument>, mut commands: Commands) {
     for _ in events.iter() {
-        let buffer = TextBuffer::default();
-        commands.spawn().insert(buffer);
+        let document = Document::default();
+        commands.spawn().insert(document);
     }
 }
 
 fn open_document(mut events: EventReader<OpenDocument>, mut commands: Commands) {
     for e in events.iter() {
-        let buffer = TextBuffer::new(e.path, DefaultEOL::LF);
-        commands.spawn().insert(buffer);
+        let document = Document::new(e.path, DefaultEOL::LF);
+        commands.spawn().insert(document);
     }
 }
 
-fn send_document_added(q: Query<&TextBuffer, Added<TextBuffer>>, mut ui: EventWriter<UICommand>) {
+fn send_document_added(q: Query<&Document, Added<Document>>, mut ui: EventWriter<UICommand>) {
     for _text_buffer in q.iter() {
         ui.send(UICommand::DocumentAdded);
     }

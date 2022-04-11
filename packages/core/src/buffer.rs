@@ -5,75 +5,83 @@ use std::{convert::From, fs, str};
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Component, Default, Debug)]
-pub struct TextBuffer {
+pub struct Document {
     file_path: Option<&'static str>,
+    text_buffer: TextBuffer,
+}
+
+impl Document {
+    pub fn new(file_path: &'static str, default_eol: DefaultEOL) -> Document {
+        let original = fs::read_to_string(file_path.clone()).expect("Failed to read file");
+        let text_buffer = TextBuffer::new(&original, default_eol);
+
+        Document {
+            file_path: Some(file_path),
+            text_buffer,
+        }
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct TextBuffer {
     tree: RBTree<NodeAdapter>,
     info: TextBufferInfo,
 
     original: Buffer,
-    added: Vec<Buffer>,
+    changed: Vec<Buffer>,
 
     cache: TextBufferCache,
 }
 
 impl TextBuffer {
-    pub fn new(file_path: &'static str, default_eol: DefaultEOL) -> TextBuffer {
-        let original = fs::read_to_string(file_path.clone()).expect("Failed to read file");
-        let (info, line_starts) =
-            TextBufferInfo::new_with_line_starts(original.clone().as_str(), default_eol);
-        let buffer = TextBuffer {
-            file_path: Some(file_path),
+    fn new(original: &String, default_eol: DefaultEOL) -> TextBuffer {
+        let (info, line_starts) = TextBufferInfo::new_with_meta(original.as_str(), default_eol);
+
+        let mut text_buffer = TextBuffer {
             tree: RBTree::<NodeAdapter>::default(),
             info,
             original: Buffer::new(original.clone(), line_starts),
-            added: vec![Buffer::default()],
+            changed: vec![Buffer::default()],
             cache: TextBufferCache::default(),
         };
 
-        buffer
+        let node = Node::from(&text_buffer.original);
+        text_buffer.tree.insert(Box::new(node));
+
+        text_buffer
     }
 }
 
 impl TextBuffer {
     pub fn insert(&mut self, offset: i32, value: &'static str) {
         if self.tree.is_empty() {
+            // first insert
             let buffer = Buffer::from(value);
-            let grapheme_len = value.graphemes(true).count() as i32;
-            let line_starts_len = buffer.line_starts.len() as i32;
-            let end_line = if line_starts_len == 0 {
-                0
-            } else {
-                line_starts_len - 1
-            };
-
-            let node = Node::new(
-                Some(self.added.len() as i32),
-                BufferCursor::new(0, 0),
-                BufferCursor::new(
-                    end_line,
-                    grapheme_len - buffer.line_starts.last().unwrap_or(&0),
-                ),
-                grapheme_len,
-                buffer.line_starts.len() as i32 - 1,
-            );
+            let mut node = Node::from(&buffer);
+            node.piece.buffer_index = Some(self.changed.len() as i32);
 
             self.tree.insert(Box::new(node));
-            self.added.push(buffer);
+            self.changed.push(buffer);
         } else {
-            let position = self.get_node_position(offset);
-
-            if position.node.piece.buffer_index.is_some()
-                && position.node.piece.end.line == self.cache.last_change.line
-                && position.node.piece.end.column == self.cache.last_change.column
-                && position.node_start_offset + position.node.piece.len == offset
+            let NodePosition {
+                node,
+                node_start_offset,
+                ..
+            } = self.get_node_position(offset);
+            if node.piece.buffer_index.is_some()
+                && node.piece.end.line == self.cache.last_change.line
+                && node.piece.end.column == self.cache.last_change.column
+                && node_start_offset + node.piece.len == offset
             {
-                self.append(position.node, value.to_string());
-            } else if position.node_start_offset == offset {
+                // modified node
+                self.append(node, value.to_string());
+            } else if node_start_offset == offset {
                 // self.insert_left(node, value);
                 // self.search_cache.validate(offset);
-            } else if position.node_start_offset + position.node.piece.len > offset {
+            } else if node_start_offset + node.piece.len > offset {
                 // self.insert_middle(node, value);
             } else {
+                // original node
                 // self.insert_right(node, value);
             }
 
@@ -81,7 +89,7 @@ impl TextBuffer {
         }
     }
 
-    fn append(&mut self, node: Node, mut value: String) {
+    fn append(&mut self, mut node: Node, mut value: String) {
         if self.adjust_cr_from_next(node.clone(), &mut value) {
             value.push_str("\n");
         }
@@ -99,35 +107,44 @@ impl TextBuffer {
             let buffer = self.get_buffer_mut(node.piece.buffer_index);
             let prev_start_offset = buffer.line_starts[buffer.line_starts.len() - 2];
             buffer.line_starts.pop();
-            // last_change_buffer_position is already wrong */
+
             self.cache.last_change = BufferCursor::new(
                 self.cache.last_change.line - 1,
                 start_offset - prev_start_offset,
             );
         }
         line_starts.remove(0);
-        let buffer = self.get_buffer_mut(node.piece.buffer_index);
+        let mut buffer = self.get_buffer(node.piece.buffer_index);
         buffer.line_starts.extend_from_slice(&line_starts[1..]);
 
-        // this._buffers[0].lineStarts = (<number[]>this._buffers[0].lineStarts).concat(<number[]>lineStarts.slice(1));
-        /* const endIndex = this._buffers[0].lineStarts.length - 1; */
-        /* const endColumn = this._buffers[0].buffer.length - this._buffers[0].lineStarts[endIndex]; */
-        /* const newEnd = { line: endIndex, column: endColumn }; */
-        /* const newLength = node.piece.length + value.length; */
-        /* const oldLineFeedCnt = node.piece.lineFeedCnt; */
-        /* const newLineFeedCnt = this.getLineFeedCnt(0, node.piece.start, newEnd); */
-        /* const lf_delta = newLineFeedCnt - oldLineFeedCnt; */
+        self.original
+            .line_starts
+            .extend_from_slice(&line_starts[1..]);
 
-        // node.piece = Piece::new(
-        // 	node.piece.bufferIndex,
-        // 	node.piece.start,
-        // 	newEnd,
-        // 	newLineFeedCnt,
-        // 	newLength
-        // );
+        let end_index = self.original.line_starts.len() as i32 - 1;
+        let end_column = self.original.value.graphemes(true).count() as i32
+            - self
+                .original
+                .line_starts
+                .get(end_index as usize)
+                .expect("end index is out of line starts index");
+        let new_end = BufferCursor::new(end_index, end_column);
+        let old_line_feed_count = node.piece.line_feed_count;
+        let new_line_feed_count = buffer.get_line_feed_count(&node.piece.start, &new_end);
+        let value_len = value.graphemes(true).count() as i32;
 
-        /* this._lastChangeBufferPos = newEnd; */
-        /* updateTreeMetadata(this, node, value.length, lf_delta); */
+        self.changed[node.piece.buffer_index.expect("buffer_index is None") as usize] = buffer;
+
+        node.piece = Piece::new(
+            node.piece.buffer_index,
+            node.piece.start,
+            new_end,
+            new_line_feed_count,
+            node.piece.len + value_len,
+        );
+
+        self.cache.last_change = new_end;
+        self.update_tree_metadata(&node, value_len, new_line_feed_count - old_line_feed_count);
     }
 
     fn get_node_position(&mut self, mut offset: i32) -> NodePosition {
@@ -234,14 +251,14 @@ impl TextBuffer {
 
     fn get_buffer(&self, buffer_index: Option<i32>) -> Buffer {
         match buffer_index {
-            Some(i) => self.added[i as usize].clone(),
+            Some(i) => self.changed[i as usize].clone(),
             None => self.original.clone(),
         }
     }
 
     fn get_buffer_mut(&mut self, buffer_index: Option<i32>) -> &mut Buffer {
         match buffer_index {
-            Some(i) => &mut self.added[i as usize],
+            Some(i) => &mut self.changed[i as usize],
             None => &mut self.original,
         }
     }
@@ -252,7 +269,7 @@ impl TextBuffer {
         }
         // let buffer = this._buffers[node.piece.bufferIndex];
         todo!("node_char_code_at");
-        // let buffer = self.added[node.offset..];
+        // let buffer = self.changed[node.offset..];
         // let new_offset = self.get_offset_in_buffer(node.piece.bufferIndex, node.piece.start) + offset;
         // return buffer.buffer.charCodeAt(new_offset);
     }
@@ -279,18 +296,13 @@ impl TextBuffer {
     }
 
     fn get_node_content(&self, node: &Node) -> String {
-        println!("original: {:?}, added: {:?}", self.original, self.added);
         match self.tree.find(&node.total_size()).get() {
             Some(node) => {
                 let buffer = self.get_buffer(node.piece.buffer_index);
                 let start_offset = buffer.offset(node.piece.start);
-                let end_offset = buffer.offset(node.piece.end) - 1;
+                let end_offset = buffer.offset(node.piece.end);
 
                 let graphemes = &mut buffer.value.graphemes(true);
-                println!(
-                    "buffer_index: {:?}, value: {}, start: {}, end: {}",
-                    node.piece.buffer_index, buffer.value, start_offset, end_offset
-                );
                 let mut text = String::new();
                 while let Some((i, g)) = graphemes.enumerate().next() {
                     if start_offset <= i as i32 && i as i32 <= end_offset {
@@ -382,13 +394,14 @@ pub struct TextBufferInfo {
 }
 
 impl TextBufferInfo {
-    fn new_with_line_starts(value: &str, default_eol: DefaultEOL) -> (TextBufferInfo, Vec<i32>) {
+    fn new_with_meta(value: &str, default_eol: DefaultEOL) -> (TextBufferInfo, Vec<i32>) {
         let encoding = CharacterEncoding::from(value);
         let mut line_starts = vec![0];
         let mut line_break_count = LineBreakCount::default();
         let mut is_ascii = true;
 
         let enumerate = &mut value.grapheme_indices(true).enumerate();
+        let grapheme_len = enumerate.count() as i32;
         while let Some((i, (grapheme_index, c))) = enumerate.next() {
             match c {
                 "\r" => match enumerate.nth(i + 1) {
@@ -593,6 +606,29 @@ pub struct Node {
     parent_key: Option<i32>,
 }
 
+impl From<&Buffer> for Node {
+    fn from(buffer: &Buffer) -> Node {
+        let grapheme_len = buffer.value.graphemes(true).count() as i32;
+        let line_starts_len = buffer.line_starts.len() as i32;
+        let end_line = if line_starts_len == 0 {
+            0
+        } else {
+            line_starts_len - 1
+        };
+
+        Node::new(
+            None,
+            BufferCursor::new(0, 0),
+            BufferCursor::new(
+                end_line,
+                grapheme_len - buffer.line_starts.last().unwrap_or(&0),
+            ),
+            grapheme_len,
+            line_starts_len - 1,
+        )
+    }
+}
+
 impl Node {
     fn new(
         buffer_index: Option<i32>,
@@ -711,6 +747,7 @@ mod inserts_and_deletes {
         buffer.insert(0, "This is a document with some text.");
         assert_eq!(buffer.to_string(), "This is a document with some text.");
 
+        // println!("second insert (append)");
         // buffer.insert(34, "This is some more text to insert at offset 34.");
         // assert_eq!(
         //     buffer.to_string(),
