@@ -13,7 +13,7 @@ pub struct TextBuffer {
     original: Buffer,
     added: Vec<Buffer>,
 
-    last_change_buffer_position: BufferCursor, // TODO: move to TextBufferCache
+    cache: TextBufferCache,
 }
 
 impl TextBuffer {
@@ -27,7 +27,7 @@ impl TextBuffer {
             info,
             original: Buffer::new(original.clone(), line_starts),
             added: vec![Buffer::default()],
-            last_change_buffer_position: BufferCursor::default(),
+            cache: TextBufferCache::default(),
         };
 
         buffer
@@ -61,23 +61,17 @@ impl TextBuffer {
             self.added.push(buffer);
         } else {
             let position = self.get_node_position(offset);
-            let node = self
-                .tree
-                .find(&position.node_key)
-                .get()
-                .expect("Cannot find node")
-                .clone();
 
-            if node.piece.buffer_index.is_some()
-                && node.piece.end.line == self.last_change_buffer_position.line
-                && node.piece.end.column == self.last_change_buffer_position.column
-                && position.node_start_offset + node.piece.len == offset
+            if position.node.piece.buffer_index.is_some()
+                && position.node.piece.end.line == self.cache.last_change.line
+                && position.node.piece.end.column == self.cache.last_change.column
+                && position.node_start_offset + position.node.piece.len == offset
             {
-                self.append(node, value.to_string());
+                self.append(position.node, value.to_string());
             } else if position.node_start_offset == offset {
                 // self.insert_left(node, value);
                 // self.search_cache.validate(offset);
-            } else if position.node_start_offset + node.piece.len > offset {
+            } else if position.node_start_offset + position.node.piece.len > offset {
                 // self.insert_middle(node, value);
             } else {
                 // self.insert_right(node, value);
@@ -106,8 +100,8 @@ impl TextBuffer {
             let prev_start_offset = buffer.line_starts[buffer.line_starts.len() - 2];
             buffer.line_starts.pop();
             // last_change_buffer_position is already wrong */
-            self.last_change_buffer_position = BufferCursor::new(
-                self.last_change_buffer_position.line - 1,
+            self.cache.last_change = BufferCursor::new(
+                self.cache.last_change.line - 1,
                 start_offset - prev_start_offset,
             );
         }
@@ -136,11 +130,15 @@ impl TextBuffer {
         /* updateTreeMetadata(this, node, value.length, lf_delta); */
     }
 
-    fn get_node_position(&self, mut offset: i32) -> NodePosition {
-        /* let cache = self.search_cache.get(offset); */
-        /* if (cache) { */
-        /*     NodePosition::new(cache.cursor, cache.node_start_offset, offset - cache.node_start_offset); */
-        /* } */
+    fn get_node_position(&mut self, mut offset: i32) -> NodePosition {
+        let cache = self.cache.search.get_position(offset);
+        if let Some(cache) = cache {
+            NodePosition::new(
+                cache.node.clone(),
+                cache.node_start_offset,
+                offset - cache.node_start_offset,
+            );
+        }
 
         let mut node_start_offset = 0;
         let mut res = None;
@@ -153,13 +151,10 @@ impl TextBuffer {
                 cursor.move_prev();
             } else if node.total_size() >= offset {
                 node_start_offset += node.left_size;
-                let position = NodePosition::new(
-                    node.total_size(),
-                    offset - node.left_size,
-                    node_start_offset,
-                );
-                // self.search_cache.set(res);
-                res = Some(position);
+                let position =
+                    NodePosition::new(node.clone(), offset - node.left_size, node_start_offset);
+                res = Some(position.clone());
+                self.cache.search.set_position(position);
                 break;
             } else {
                 offset -= node.total_size();
@@ -375,21 +370,6 @@ impl Buffer {
 
 const UTF8_BOM: &str = "\u{feff}";
 
-struct NodePosition {
-    node_key: i32,
-    remainder: i32,
-    node_start_offset: i32,
-}
-
-impl NodePosition {
-    fn new(node_key: i32, remainder: i32, node_start_offset: i32) -> NodePosition {
-        NodePosition {
-            node_key,
-            remainder,
-            node_start_offset,
-        }
-    }
-}
 #[derive(Debug, Default)]
 pub struct TextBufferInfo {
     encoding: CharacterEncoding,
@@ -507,6 +487,99 @@ struct LineBreakCount {
     cr: i32,
     lf: i32,
     crlf: i32,
+}
+
+#[derive(Debug)]
+struct PieceTreeSearchCache {
+    limit: i32,
+    positions: Vec<NodePosition>,
+    line_positions: Vec<NodeLinePosition>,
+}
+
+impl Default for PieceTreeSearchCache {
+    fn default() -> PieceTreeSearchCache {
+        PieceTreeSearchCache {
+            limit: 1,
+            positions: vec![],
+            line_positions: vec![],
+        }
+    }
+}
+
+impl PieceTreeSearchCache {
+    fn get_position(&self, offset: i32) -> Option<&NodePosition> {
+        let mut res = None;
+        for p in self.positions.iter().rev() {
+            if p.node_start_offset <= offset && p.node_start_offset + p.node.piece.len >= offset {
+                res = Some(p);
+                break;
+            }
+        }
+
+        res
+    }
+
+    fn get_line_position(&self, line_number: i32) -> Option<&NodeLinePosition> {
+        let mut res = None;
+        for p in self.line_positions.iter().rev() {
+            if p.node_start_line_number < line_number
+                && p.node_start_line_number + p.node.piece.line_feed_count >= line_number
+            {
+                res = Some(p);
+                break;
+            }
+        }
+
+        res
+    }
+
+    fn is_limit(&self) -> bool {
+        self.positions.len() + self.line_positions.len() >= self.limit as usize
+    }
+
+    fn set_position(&mut self, position: NodePosition) {
+        if self.is_limit() {
+            self.positions.remove(0);
+        }
+        self.positions.push(position);
+    }
+
+    fn set_line_position(&mut self, line_position: NodeLinePosition) {
+        if self.is_limit() {
+            self.line_positions.remove(0);
+        }
+        self.line_positions.push(line_position);
+    }
+}
+
+#[derive(Default, Debug)]
+struct TextBufferCache {
+    last_change: BufferCursor,
+    search: PieceTreeSearchCache,
+}
+
+#[derive(Debug, Clone)]
+struct NodePosition {
+    node: Node,
+    remainder: i32,
+    node_start_offset: i32,
+}
+
+impl NodePosition {
+    fn new(node: Node, remainder: i32, node_start_offset: i32) -> NodePosition {
+        NodePosition {
+            node,
+            remainder,
+            node_start_offset,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct NodeLinePosition {
+    node: Node,
+    node_start_offset: i32,
+    node_start_line_number: i32,
 }
 
 #[derive(Default, Debug, Clone)]
