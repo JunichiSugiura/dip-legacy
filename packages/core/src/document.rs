@@ -42,14 +42,14 @@ fn debug_setup(mut new_doc: EventWriter<OpenDocument>) {
 
 fn new_document(mut events: EventReader<NewDocument>, mut commands: Commands) {
     for _ in events.iter() {
-        let document = Document::default();
+        let document = Document::new(DefaultEOL::LF);
         commands.spawn().insert(document);
     }
 }
 
 fn open_document(mut events: EventReader<OpenDocument>, mut commands: Commands) {
     for e in events.iter() {
-        let document = Document::new(e.path, DefaultEOL::LF);
+        let document = Document::from_file(e.path, DefaultEOL::LF);
         commands.spawn().insert(document);
     }
 }

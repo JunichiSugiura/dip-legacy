@@ -4,16 +4,23 @@ use intrusive_collections::{KeyAdapter, RBTree, RBTreeAtomicLink};
 use std::{convert::From, fs, str};
 use unicode_segmentation::UnicodeSegmentation;
 
-#[derive(Component, Default, Debug)]
+#[derive(Component, Debug)]
 pub struct Document {
     file_path: Option<&'static str>,
     text_buffer: TextBuffer,
 }
 
 impl Document {
-    pub fn new(file_path: &'static str, default_eol: DefaultEOL) -> Document {
+    pub fn new(default_eol: DefaultEOL) -> Document {
+        Document {
+            file_path: None,
+            text_buffer: TextBuffer::new(default_eol),
+        }
+    }
+
+    pub fn from_file(file_path: &'static str, default_eol: DefaultEOL) -> Document {
         let original = fs::read_to_string(file_path.clone()).expect("Failed to read file");
-        let text_buffer = TextBuffer::new(&original, default_eol);
+        let text_buffer = TextBuffer::from_string(&original, default_eol);
 
         Document {
             file_path: Some(file_path),
@@ -28,24 +35,30 @@ pub struct TextBuffer {
     info: TextBufferInfo,
 
     original: Buffer,
-    changed: Vec<Buffer>,
+    changed: Buffer,
 
     cache: TextBufferCache,
 }
 
 impl TextBuffer {
-    fn new(original: &String, default_eol: DefaultEOL) -> TextBuffer {
-        let (info, line_starts) = TextBufferInfo::new_with_meta(original.as_str(), default_eol);
+    fn new(default_eol: DefaultEOL) -> TextBuffer {
+        TextBuffer {
+            info: TextBufferInfo::new(default_eol),
+            ..Default::default()
+        }
+    }
+
+    fn from_string(original: &str, default_eol: DefaultEOL) -> TextBuffer {
+        let original = original.to_string();
+        let (info, line_starts) = TextBufferInfo::from_string(&original.clone(), default_eol);
 
         let mut text_buffer = TextBuffer {
-            tree: RBTree::<NodeAdapter>::default(),
             info,
             original: Buffer::new(original.clone(), line_starts),
-            changed: vec![Buffer::default()],
-            cache: TextBufferCache::default(),
+            ..Default::default()
         };
 
-        let node = Node::from(&text_buffer.original);
+        let node = Node::from_buffer(&text_buffer.original, NodeType::Original);
         text_buffer.tree.insert(Box::new(node));
 
         text_buffer
@@ -54,35 +67,35 @@ impl TextBuffer {
 
 impl TextBuffer {
     pub fn insert(&mut self, offset: i32, value: &'static str) {
+        let value = value.to_string();
+
         if self.tree.is_empty() {
             // first insert
-            let buffer = Buffer::from(value);
-            let mut node = Node::from(&buffer);
-            node.piece.buffer_index = Some(self.changed.len() as i32);
+            let (node, buffer) = Node::from_string(value, NodeType::Changed);
 
             self.tree.insert(Box::new(node));
-            self.changed.push(buffer);
+            self.changed = buffer;
         } else {
             let NodePosition {
                 node,
                 node_start_offset,
                 ..
             } = self.get_node_position(offset);
-            if node.piece.buffer_index.is_some()
+            if node.is_original()
                 && node.piece.end.line == self.cache.last_change.line
                 && node.piece.end.column == self.cache.last_change.column
                 && node_start_offset + node.piece.len == offset
             {
                 // modified node
-                self.append(node, value.to_string());
+                self.append(node, value);
             } else if node_start_offset == offset {
-                // self.insert_left(node, value);
-                // self.search_cache.validate(offset);
+                self.insert_left(node, value);
+                self.cache.search.validate(offset);
             } else if node_start_offset + node.piece.len > offset {
-                // self.insert_middle(node, value);
+                self.insert_middle(node, value);
             } else {
                 // original node
-                // self.insert_right(node, value);
+                self.insert_right(node, value.to_string());
             }
 
             self.compute_buffer_metadata();
@@ -94,8 +107,10 @@ impl TextBuffer {
             value.push_str("\n");
         }
 
+        self.changed.value.push_str(&value);
+
         let start_offset = node.total_size();
-        let mut line_starts = Buffer::get_line_starts(value.clone());
+        let mut line_starts = Buffer::get_line_starts(&value);
         for line_start in line_starts.iter_mut() {
             *line_start += start_offset;
         }
@@ -104,7 +119,7 @@ impl TextBuffer {
             && Node::start_with_lf_from_string(&mut value)
             && self.end_with_cr(&node);
         if hit_crlf {
-            let buffer = self.get_buffer_mut(node.piece.buffer_index);
+            let buffer = self.get_buffer_mut(&node);
             let prev_start_offset = buffer.line_starts[buffer.line_starts.len() - 2];
             buffer.line_starts.pop();
 
@@ -114,7 +129,7 @@ impl TextBuffer {
             );
         }
         line_starts.remove(0);
-        let mut buffer = self.get_buffer(node.piece.buffer_index);
+        let mut buffer = self.get_buffer(&node);
         buffer.line_starts.extend_from_slice(&line_starts[1..]);
 
         self.original
@@ -133,10 +148,7 @@ impl TextBuffer {
         let new_line_feed_count = buffer.get_line_feed_count(&node.piece.start, &new_end);
         let value_len = value.graphemes(true).count() as i32;
 
-        self.changed[node.piece.buffer_index.expect("buffer_index is None") as usize] = buffer;
-
         node.piece = Piece::new(
-            node.piece.buffer_index,
             node.piece.start,
             new_end,
             new_line_feed_count,
@@ -145,6 +157,32 @@ impl TextBuffer {
 
         self.cache.last_change = new_end;
         self.update_tree_metadata(&node, value_len, new_line_feed_count - old_line_feed_count);
+    }
+
+    fn insert_left(&mut self, _node: Node, _value: String) {
+        todo!("insert_middle");
+    }
+
+    fn insert_middle(&mut self, _node: Node, _value: String) {
+        todo!("insert_middle");
+    }
+
+    fn insert_right(&mut self, node: Node, mut value: String) {
+        if self.adjust_cr_from_next(node, &mut value) {
+            value += "\n";
+        }
+
+        todo!("insert_middle")
+
+        // let piece = self.new_node(&value);
+        // const newNode = this.rbInsertRight(node, newPieces[0]);
+        // let tmpNode = newNode;
+
+        // for (let k = 1; k < newPieces.length; k++) {
+        // 	tmpNode = this.rbInsertRight(tmpNode, newPieces[k]);
+        // }
+
+        // self.validate_crlf_with_prev_node(newNode);
     }
 
     fn get_node_position(&mut self, mut offset: i32) -> NodePosition {
@@ -187,12 +225,25 @@ impl TextBuffer {
         todo!("delete");
     }
 
+    fn new_node(&mut self, _value: &String) {
+        // let start_offset = self.changed.value.len();
+        // let line_starts = Buffer::get_line_starts(value);
+
+        todo!("new_node");
+
+        // Buffer::new(value, Buffer::get_line_starts(value), Buffer)
+        // let buffer = Buffer::from(value);
+        // let node = Node::from(&buffer);
+
+        // self.tree.insert(Box::new(node));
+    }
+
     fn adjust_cr_from_next(&mut self, node: Node, value: &mut String) -> bool {
         if !(self.info.should_check_crlf() && Node::end_with_cr_from_string(value)) {
             return false;
         }
 
-        let buffer = self.get_buffer(node.piece.buffer_index);
+        let buffer = self.get_buffer(&node);
         let mut cursor = self.tree.find_mut(&node.total_size());
         match cursor.as_cursor().get() {
             Some(node) => {
@@ -208,7 +259,6 @@ impl TextBuffer {
                                 let mut node = node.clone();
                                 let start = BufferCursor::new(node.piece.start.line + 1, 0);
                                 node.piece = Piece::new(
-                                    node.piece.buffer_index,
                                     start,
                                     node.piece.end,
                                     buffer.get_line_feed_count(&start, &node.piece.end),
@@ -241,7 +291,7 @@ impl TextBuffer {
             return false;
         }
 
-        let buffer = self.get_buffer(node.piece.buffer_index);
+        let buffer = self.get_buffer(node);
         match buffer.value.graphemes(true).last() {
             Some("\r") => true,
             Some(_) => false,
@@ -249,17 +299,19 @@ impl TextBuffer {
         }
     }
 
-    fn get_buffer(&self, buffer_index: Option<i32>) -> Buffer {
-        match buffer_index {
-            Some(i) => self.changed[i as usize].clone(),
-            None => self.original.clone(),
+    fn get_buffer(&self, node: &Node) -> Buffer {
+        if node.is_original() {
+            self.original.clone()
+        } else {
+            self.changed.clone()
         }
     }
 
-    fn get_buffer_mut(&mut self, buffer_index: Option<i32>) -> &mut Buffer {
-        match buffer_index {
-            Some(i) => &mut self.changed[i as usize],
-            None => &mut self.original,
+    fn get_buffer_mut(&mut self, node: &Node) -> &mut Buffer {
+        if node.is_original() {
+            &mut self.original
+        } else {
+            &mut self.changed
         }
     }
 
@@ -314,7 +366,7 @@ impl TextBuffer {
     fn get_node_content(&self, node: &Node) -> String {
         match self.tree.find(&node.total_size()).get() {
             Some(node) => {
-                let buffer = self.get_buffer(node.piece.buffer_index);
+                let buffer = self.get_buffer(node);
                 let start_offset = buffer.offset(node.piece.start);
                 let end_offset = buffer.offset(node.piece.end);
 
@@ -339,10 +391,10 @@ struct Buffer {
     line_starts: Vec<i32>,
 }
 
-impl From<&str> for Buffer {
-    fn from(value: &str) -> Buffer {
-        let value = value.to_string();
-        Buffer::new(value.clone(), Buffer::get_line_starts(value))
+impl From<String> for Buffer {
+    fn from(value: String) -> Buffer {
+        let line_starts = Buffer::get_line_starts(&value.clone());
+        Buffer { value, line_starts }
     }
 }
 
@@ -355,7 +407,7 @@ impl Buffer {
         self.line_starts.get(cursor.line as usize).unwrap_or(&0) + cursor.column
     }
 
-    fn get_line_starts(value: String) -> Vec<i32> {
+    fn get_line_starts(value: &String) -> Vec<i32> {
         let mut line_starts = vec![0];
 
         let enumerate = &mut value.grapheme_indices(true).enumerate();
@@ -398,7 +450,7 @@ impl Buffer {
 
 const UTF8_BOM: &str = "\u{feff}";
 
-#[derive(Debug, Default)]
+#[derive(Default, Debug)]
 pub struct TextBufferInfo {
     encoding: CharacterEncoding,
     eol: EOL,
@@ -410,14 +462,26 @@ pub struct TextBufferInfo {
 }
 
 impl TextBufferInfo {
-    fn new_with_meta(value: &str, default_eol: DefaultEOL) -> (TextBufferInfo, Vec<i32>) {
+    fn new(default_eol: DefaultEOL) -> TextBufferInfo {
+        let eol = match default_eol {
+            DefaultEOL::LF => EOL::LF,
+            DefaultEOL::CRLF => EOL::CRLF,
+        };
+
+        TextBufferInfo {
+            encoding: CharacterEncoding::Utf8,
+            eol,
+            ..Default::default()
+        }
+    }
+
+    fn from_string(value: &String, default_eol: DefaultEOL) -> (TextBufferInfo, Vec<i32>) {
         let encoding = CharacterEncoding::from(value);
         let mut line_starts = vec![0];
         let mut line_break_count = LineBreakCount::default();
         let mut is_ascii = true;
 
         let enumerate = &mut value.grapheme_indices(true).enumerate();
-        let grapheme_len = enumerate.count() as i32;
         while let Some((i, (grapheme_index, c))) = enumerate.next() {
             match c {
                 "\r" => match enumerate.nth(i + 1) {
@@ -501,8 +565,8 @@ impl Default for CharacterEncoding {
     }
 }
 
-impl From<&str> for CharacterEncoding {
-    fn from(s: &str) -> Self {
+impl From<&String> for CharacterEncoding {
+    fn from(s: &String) -> Self {
         if s.starts_with(UTF8_BOM) {
             CharacterEncoding::Utf8WithBom
         } else {
@@ -625,14 +689,33 @@ pub struct Node {
     link: RBTreeAtomicLink,
 
     piece: Piece,
+    r#type: NodeType,
 
     left_size: i32,
     left_line_feed_count: i32,
     parent_key: Option<i32>,
 }
 
-impl From<&Buffer> for Node {
-    fn from(buffer: &Buffer) -> Node {
+impl Node {
+    fn is_original(&self) -> bool {
+        self.r#type == NodeType::Original
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum NodeType {
+    Original,
+    Changed,
+}
+
+impl Default for NodeType {
+    fn default() -> NodeType {
+        NodeType::Changed
+    }
+}
+
+impl Node {
+    fn from_buffer(buffer: &Buffer, r#type: NodeType) -> Node {
         let grapheme_len = buffer.value.graphemes(true).count() as i32;
         let line_starts_len = buffer.line_starts.len() as i32;
         let end_line = if line_starts_len == 0 {
@@ -641,32 +724,21 @@ impl From<&Buffer> for Node {
             line_starts_len - 1
         };
 
-        Node::new(
-            None,
-            BufferCursor::new(0, 0),
-            BufferCursor::new(
-                end_line,
-                grapheme_len - buffer.line_starts.last().unwrap_or(&0),
+        Node {
+            piece: Piece::new(
+                BufferCursor::default(),
+                BufferCursor::new(end_line, grapheme_len),
+                grapheme_len,
+                line_starts_len,
             ),
-            grapheme_len,
-            line_starts_len - 1,
-        )
+            r#type,
+            ..Default::default()
+        }
     }
-}
 
-impl Node {
-    fn new(
-        buffer_index: Option<i32>,
-        start: BufferCursor,
-        end: BufferCursor,
-        len: i32,
-        line_feed_count: i32,
-    ) -> Node {
-        let mut node = Node::default();
-        let piece = Piece::new(buffer_index, start, end, line_feed_count, len);
-        node.piece = piece;
-
-        node
+    fn from_string(value: String, r#type: NodeType) -> (Node, Buffer) {
+        let buffer = Buffer::from(value);
+        (Node::from_buffer(&buffer, r#type), buffer)
     }
 
     fn total_size(&self) -> i32 {
@@ -709,7 +781,6 @@ impl Node {
 
 #[derive(Default, Debug, Clone)]
 struct Piece {
-    buffer_index: Option<i32>, // None means original piece
     start: BufferCursor,
     end: BufferCursor,
     len: i32,
@@ -717,15 +788,8 @@ struct Piece {
 }
 
 impl Piece {
-    fn new(
-        buffer_index: Option<i32>,
-        start: BufferCursor,
-        end: BufferCursor,
-        line_feed_count: i32,
-        len: i32,
-    ) -> Piece {
+    fn new(start: BufferCursor, end: BufferCursor, line_feed_count: i32, len: i32) -> Piece {
         Piece {
-            buffer_index,
             len,
             start,
             end,
@@ -765,19 +829,17 @@ impl BufferCursor {
 
 #[cfg(test)]
 mod inserts_and_deletes {
-    use crate::buffer::TextBuffer;
+    use crate::buffer::{DefaultEOL, TextBuffer};
     #[test]
     fn basic_insert_and_delete() {
-        let mut buffer = TextBuffer::default();
-        buffer.insert(0, "This is a document with some text.");
-        assert_eq!(buffer.to_string(), "This is a document with some text.");
+        let mut buffer =
+            TextBuffer::from_string("This is a document with some text.", DefaultEOL::LF);
 
-        // println!("second insert (append)");
-        // buffer.insert(34, "This is some more text to insert at offset 34.");
-        // assert_eq!(
-        //     buffer.to_string(),
-        //     "This is a document with some text.This is some more text to insert at offset 34."
-        // );
+        buffer.insert(34, "This is some more text to insert at offset 34.");
+        assert_eq!(
+            buffer.to_string(),
+            "This is a document with some text.This is some more text to insert at offset 34."
+        );
 
         /*         buffer.delete(42, 5); */
         /*         assert_eq!( */
