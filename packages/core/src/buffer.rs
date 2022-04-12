@@ -35,7 +35,7 @@ pub struct TextBuffer {
     info: TextBufferInfo,
 
     original: Buffer,
-    changed: Buffer,
+    changed: Option<Buffer>,
 
     cache: TextBufferCache,
 }
@@ -58,7 +58,7 @@ impl TextBuffer {
             ..Default::default()
         };
 
-        let node = Node::from_buffer(&text_buffer.original, NodeType::Original);
+        let node = Node::from_original_buffer(&text_buffer.original);
         text_buffer.tree.insert(Box::new(node));
 
         text_buffer
@@ -69,12 +69,9 @@ impl TextBuffer {
     pub fn insert(&mut self, offset: i32, value: &'static str) {
         let value = value.to_string();
 
-        if self.tree.is_empty() {
+        if self.changed.is_none() {
             // first insert
-            let (node, buffer) = Node::from_string(value, NodeType::Changed);
-
-            self.tree.insert(Box::new(node));
-            self.changed = buffer;
+            self.add_node(&value);
         } else {
             let NodePosition {
                 node,
@@ -86,7 +83,7 @@ impl TextBuffer {
                 && node.piece.end.column == self.cache.last_change.column
                 && node_start_offset + node.piece.len == offset
             {
-                // modified node
+                // changed node
                 self.append(node, value);
             } else if node_start_offset == offset {
                 self.insert_left(node, value);
@@ -107,7 +104,7 @@ impl TextBuffer {
             value.push_str("\n");
         }
 
-        self.changed.value.push_str(&value);
+        self.changed().value.push_str(&value);
 
         let start_offset = node.total_size();
         let mut line_starts = Buffer::get_line_starts(&value);
@@ -119,9 +116,13 @@ impl TextBuffer {
             && Node::start_with_lf_from_string(&mut value)
             && self.end_with_cr(&node);
         if hit_crlf {
-            let buffer = self.get_buffer_mut(&node);
+            let buffer = self.get_buffer(&node);
             let prev_start_offset = buffer.line_starts[buffer.line_starts.len() - 2];
-            buffer.line_starts.pop();
+            if node.is_original() {
+                self.original.line_starts.pop();
+            } else {
+                self.changed_mut().line_starts.pop();
+            }
 
             self.cache.last_change = BufferCursor::new(
                 self.cache.last_change.line - 1,
@@ -172,7 +173,7 @@ impl TextBuffer {
             value += "\n";
         }
 
-        todo!("insert_middle")
+        todo!("insert_right");
 
         // let piece = self.new_node(&value);
         // const newNode = this.rbInsertRight(node, newPieces[0]);
@@ -225,17 +226,50 @@ impl TextBuffer {
         todo!("delete");
     }
 
-    fn new_node(&mut self, _value: &String) {
-        // let start_offset = self.changed.value.len();
-        // let line_starts = Buffer::get_line_starts(value);
+    fn add_node(&mut self, value: &String) {
+        let mut changed = match &self.changed {
+            Some(b) => b.clone(),
+            None => Buffer::from(value.clone()),
+        };
+        let mut start_offset = changed.value.len() as i32;
+        let line_starts = Buffer::get_line_starts(value);
 
-        todo!("new_node");
+        match changed.line_starts.last() {
+            Some(changed_line_starts) => {
+                if *changed_line_starts == start_offset as i32
+                    && start_offset != 0
+                    && Node::start_with_lf_from_string(value)
+                    && Node::end_with_cr_from_string(value)
+                {
+                    self.cache.last_change.column += 1;
 
-        // Buffer::new(value, Buffer::get_line_starts(value), Buffer)
-        // let buffer = Buffer::from(value);
-        // let node = Node::from(&buffer);
+                    for (i, x) in line_starts.iter().enumerate() {
+                        if i != 0 {
+                            changed.line_starts.push(x + start_offset + 1);
+                        }
+                    }
 
-        // self.tree.insert(Box::new(node));
+                    start_offset += 1;
+                    changed.value.push_str(&format!("_{}", value));
+                }
+            }
+            None => {
+                if start_offset != 0 {
+                    for (i, x) in line_starts.iter().enumerate() {
+                        if i != 0 {
+                            changed.line_starts.push(x + start_offset);
+                        }
+                    }
+                }
+                changed.value.push_str(&value);
+            }
+        }
+
+        let node = Node::from_changed_buffer(&changed, start_offset, self.cache.last_change);
+        self.changed = Some(changed);
+        self.tree.insert(Box::new(node.clone()));
+
+        self.cache.last_change = node.piece.end;
     }
 
     fn adjust_cr_from_next(&mut self, node: Node, value: &mut String) -> bool {
@@ -303,28 +337,31 @@ impl TextBuffer {
         if node.is_original() {
             self.original.clone()
         } else {
-            self.changed.clone()
+            self.changed()
         }
     }
 
-    fn get_buffer_mut(&mut self, node: &Node) -> &mut Buffer {
-        if node.is_original() {
-            &mut self.original
-        } else {
-            &mut self.changed
-        }
+    fn changed(&self) -> Buffer {
+        self.changed
+            .as_ref()
+            .expect(CHANGE_NODE_DOES_NOT_EXIST)
+            .clone()
     }
 
-    fn node_char_code_at(&self, node: Node, _offset: i32) -> Option<i32> {
-        if node.piece.line_feed_count < 1 {
-            return None;
-        }
-        // let buffer = this._buffers[node.piece.bufferIndex];
-        todo!("node_char_code_at");
-        // let buffer = self.changed[node.offset..];
-        // let new_offset = self.get_offset_in_buffer(node.piece.bufferIndex, node.piece.start) + offset;
-        // return buffer.buffer.charCodeAt(new_offset);
+    fn changed_mut(&mut self) -> &mut Buffer {
+        self.changed.as_mut().expect(CHANGE_NODE_DOES_NOT_EXIST)
     }
+
+    // fn node_char_code_at(&self, node: Node, _offset: i32) -> Option<i32> {
+    //     if node.piece.line_feed_count < 1 {
+    //         return None;
+    //     }
+    //     // let buffer = this._buffers[node.piece.bufferIndex];
+    //     todo!("node_char_code_at");
+    //     // let buffer = self.changed[node.offset..];
+    //     // let new_offset = self.get_offset_in_buffer(node.piece.bufferIndex, node.piece.start) + offset;
+    //     // return buffer.buffer.charCodeAt(new_offset);
+    // }
 
     fn compute_buffer_metadata(&mut self) {
         let mut cursor = self.tree.front();
@@ -385,10 +422,19 @@ impl TextBuffer {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 struct Buffer {
     value: String,
     line_starts: Vec<i32>,
+}
+
+impl Default for Buffer {
+    fn default() -> Buffer {
+        Buffer {
+            value: Default::default(),
+            line_starts: vec![0],
+        }
+    }
 }
 
 impl From<String> for Buffer {
@@ -449,6 +495,7 @@ impl Buffer {
 }
 
 const UTF8_BOM: &str = "\u{feff}";
+const CHANGE_NODE_DOES_NOT_EXIST: &str = "Change node doesn't exist";
 
 #[derive(Default, Debug)]
 pub struct TextBufferInfo {
@@ -612,19 +659,19 @@ impl PieceTreeSearchCache {
         res
     }
 
-    fn get_line_position(&self, line_number: i32) -> Option<&NodeLinePosition> {
-        let mut res = None;
-        for p in self.line_positions.iter().rev() {
-            if p.node_start_line_number < line_number
-                && p.node_start_line_number + p.node.piece.line_feed_count >= line_number
-            {
-                res = Some(p);
-                break;
-            }
-        }
+    // fn get_line_position(&self, line_number: i32) -> Option<&NodeLinePosition> {
+    //     let mut res = None;
+    //     for p in self.line_positions.iter().rev() {
+    //         if p.node_start_line_number < line_number
+    //             && p.node_start_line_number + p.node.piece.line_feed_count >= line_number
+    //         {
+    //             res = Some(p);
+    //             break;
+    //         }
+    //     }
 
-        res
-    }
+    //     res
+    // }
 
     fn is_limit(&self) -> bool {
         self.positions.len() + self.line_positions.len() >= self.limit as usize
@@ -637,12 +684,12 @@ impl PieceTreeSearchCache {
         self.positions.push(position);
     }
 
-    fn set_line_position(&mut self, line_position: NodeLinePosition) {
-        if self.is_limit() {
-            self.line_positions.remove(0);
-        }
-        self.line_positions.push(line_position);
-    }
+    // fn set_line_position(&mut self, line_position: NodeLinePosition) {
+    //     if self.is_limit() {
+    //         self.line_positions.remove(0);
+    //     }
+    //     self.line_positions.push(line_position);
+    // }
 
     fn validate(&mut self, offset: i32) {
         self.positions
@@ -655,9 +702,22 @@ impl PieceTreeSearchCache {
 #[derive(Default, Debug)]
 struct TextBufferCache {
     last_change: BufferCursor,
+    last_visited: LineCache,
     search: PieceTreeSearchCache,
     line_count: i32,
     len: i32,
+}
+
+#[derive(Default, Debug)]
+struct LineCache {
+    line_number: i32,
+    value: String,
+}
+
+impl LineCache {
+    fn new(line_number: i32, value: String) -> LineCache {
+        LineCache { line_number, value }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -715,7 +775,7 @@ impl Default for NodeType {
 }
 
 impl Node {
-    fn from_buffer(buffer: &Buffer, r#type: NodeType) -> Node {
+    fn from_original_buffer(buffer: &Buffer) -> Node {
         let grapheme_len = buffer.value.graphemes(true).count() as i32;
         let line_starts_len = buffer.line_starts.len() as i32;
         let end_line = if line_starts_len == 0 {
@@ -728,17 +788,35 @@ impl Node {
             piece: Piece::new(
                 BufferCursor::default(),
                 BufferCursor::new(end_line, grapheme_len),
-                grapheme_len,
                 line_starts_len,
+                grapheme_len,
             ),
-            r#type,
+            r#type: NodeType::Original,
             ..Default::default()
         }
     }
 
-    fn from_string(value: String, r#type: NodeType) -> (Node, Buffer) {
-        let buffer = Buffer::from(value);
-        (Node::from_buffer(&buffer, r#type), buffer)
+    fn from_changed_buffer(buffer: &Buffer, start_offset: i32, start: BufferCursor) -> Node {
+        let end_offset = buffer.value.graphemes(true).count() as i32;
+        let line_starts_len = buffer.line_starts.len() as i32;
+        let end_line = if line_starts_len == 0 {
+            0
+        } else {
+            line_starts_len - 1
+        };
+        let end_column = end_offset - buffer.line_starts[end_line as usize];
+        let end = BufferCursor::new(end_line as i32, end_column);
+
+        Node {
+            piece: Piece::new(
+                start,
+                end,
+                buffer.get_line_feed_count(&start, &end),
+                end_offset - start_offset,
+            ),
+            r#type: NodeType::Changed,
+            ..Default::default()
+        }
     }
 
     fn total_size(&self) -> i32 {
@@ -783,17 +861,17 @@ impl Node {
 struct Piece {
     start: BufferCursor,
     end: BufferCursor,
-    len: i32,
     line_feed_count: i32,
+    len: i32,
 }
 
 impl Piece {
     fn new(start: BufferCursor, end: BufferCursor, line_feed_count: i32, len: i32) -> Piece {
         Piece {
-            len,
             start,
             end,
             line_feed_count,
+            len,
         }
     }
 }
@@ -834,8 +912,10 @@ mod inserts_and_deletes {
     fn basic_insert_and_delete() {
         let mut buffer =
             TextBuffer::from_string("This is a document with some text.", DefaultEOL::LF);
+        assert_eq!(buffer.to_string(), "This is a document with some text.");
 
         buffer.insert(34, "This is some more text to insert at offset 34.");
+        println!("{:#?}", buffer);
         assert_eq!(
             buffer.to_string(),
             "This is a document with some text.This is some more text to insert at offset 34."
