@@ -94,9 +94,9 @@ impl TextBuffer {
                 // original node
                 self.insert_right(node, value.to_string());
             }
-
-            self.compute_buffer_metadata();
         }
+
+        self.compute_buffer_metadata();
     }
 
     fn append(&mut self, mut node: Node, mut value: String) {
@@ -106,7 +106,7 @@ impl TextBuffer {
 
         self.changed().value.push_str(&value);
 
-        let start_offset = node.total_size();
+        let start_offset = node.total_len();
         let mut line_starts = Buffer::get_line_starts(&value);
         for line_start in line_starts.iter_mut() {
             *line_start += start_offset;
@@ -203,18 +203,18 @@ impl TextBuffer {
         while !cursor.is_null() {
             let node = cursor.get().expect("Cursor is null");
 
-            if node.left_size > offset {
+            if node.left_len > offset {
                 cursor.move_prev();
-            } else if node.total_size() >= offset {
-                node_start_offset += node.left_size;
+            } else if node.total_len() >= offset {
+                node_start_offset += node.left_len;
                 let position =
-                    NodePosition::new(node.clone(), offset - node.left_size, node_start_offset);
+                    NodePosition::new(node.clone(), offset - node.left_len, node_start_offset);
                 res = Some(position.clone());
                 self.cache.search.set_position(position);
                 break;
             } else {
-                offset -= node.total_size();
-                node_start_offset += node.total_size();
+                offset -= node.total_len();
+                node_start_offset += node.total_len();
                 cursor.move_next();
             }
         }
@@ -278,7 +278,7 @@ impl TextBuffer {
         }
 
         let buffer = self.get_buffer(&node);
-        let mut cursor = self.tree.find_mut(&node.total_size());
+        let mut cursor = self.tree.find_mut(&node.total_len());
         match cursor.as_cursor().get() {
             Some(node) => {
                 cursor.as_cursor().move_next();
@@ -315,7 +315,7 @@ impl TextBuffer {
     }
 
     fn end_with_cr(&self, node: &Node) -> bool {
-        let cursor = self.tree.find(&node.total_size());
+        let cursor = self.tree.find(&node.total_len());
         if cursor.is_null() || node.piece.line_feed_count == 0 {
             return false;
         }
@@ -370,7 +370,7 @@ impl TextBuffer {
 
         while let Some(node) = cursor.get() {
             line_feed_count += node.left_line_feed_count + node.piece.line_feed_count;
-            grapheme_len += node.left_size + node.piece.len;
+            grapheme_len += node.left_len + node.piece.len;
             cursor.move_next();
         }
 
@@ -383,7 +383,7 @@ impl TextBuffer {
         while let Some(key) = node.parent_key {
             let mut cursor = self.tree.find_mut(&key);
             let mut node = node.clone();
-            node.left_size += delta;
+            node.left_len += delta;
             node.left_line_feed_count += line_feed_count_delta;
             cursor
                 .replace_with(Box::new(node))
@@ -395,30 +395,32 @@ impl TextBuffer {
         let mut text = String::new();
         for node in self.tree.iter() {
             let s = self.get_node_content(node);
+            println!("total_size: {}, text: {},", node.total_len(), s);
             text.push_str(&s);
         }
+        println!("final text: {}", text);
         text
     }
 
     fn get_node_content(&self, node: &Node) -> String {
-        match self.tree.find(&node.total_size()).get() {
-            Some(node) => {
-                let buffer = self.get_buffer(node);
-                let start_offset = buffer.offset(node.piece.start);
-                let end_offset = buffer.offset(node.piece.end);
+        let node = self
+            .tree
+            .find(&node.total_len())
+            .get()
+            .expect("Cannot find node in tree");
+        let buffer = self.get_buffer(node);
+        let start_offset = buffer.offset(node.piece.start);
+        let end_offset = buffer.offset(node.piece.end);
 
-                let graphemes = &mut buffer.value.graphemes(true);
-                let mut text = String::new();
-                while let Some((i, g)) = graphemes.enumerate().next() {
-                    if start_offset <= i as i32 && i as i32 <= end_offset {
-                        text.push_str(g);
-                    }
-                }
-
-                text
+        let graphemes = &mut buffer.value.graphemes(true);
+        let mut text = String::new();
+        while let Some((i, g)) = graphemes.enumerate().next() {
+            if start_offset <= i as i32 && i as i32 <= end_offset {
+                text.push_str(g);
             }
-            None => "".to_string(),
         }
+
+        text
     }
 }
 
@@ -751,7 +753,7 @@ pub struct Node {
     piece: Piece,
     r#type: NodeType,
 
-    left_size: i32,
+    left_len: i32,
     left_line_feed_count: i32,
     parent_key: Option<i32>,
 }
@@ -819,8 +821,8 @@ impl Node {
         }
     }
 
-    fn total_size(&self) -> i32 {
-        self.left_size + self.piece.len
+    fn total_len(&self) -> i32 {
+        self.left_len + self.piece.len
     }
 
     fn start_with_lf_from_string(value: &String) -> bool {
@@ -858,7 +860,7 @@ impl Node {
 }
 
 #[derive(Default, Debug, Clone)]
-struct Piece {
+pub struct Piece {
     start: BufferCursor,
     end: BufferCursor,
     line_feed_count: i32,
@@ -880,7 +882,7 @@ intrusive_adapter!(pub NodeAdapter = Box<Node>: Node { link: RBTreeAtomicLink })
 impl<'a> KeyAdapter<'a> for NodeAdapter {
     type Key = i32;
     fn get_key(&self, node: &'a Node) -> i32 {
-        node.total_size()
+        node.total_len()
     }
 }
 
