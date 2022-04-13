@@ -227,11 +227,10 @@ impl TextBuffer {
     }
 
     fn add_node(&mut self, value: &String) {
-        let mut changed = match &self.changed {
-            Some(b) => b.clone(),
-            None => Buffer::from(value.clone()),
+        let (mut changed, mut start_offset) = match &self.changed {
+            Some(b) => (b.clone(), b.value.graphemes(true).count() as i32),
+            None => (Buffer::from(value.clone()), 0),
         };
-        let mut start_offset = changed.value.len() as i32;
         let line_starts = Buffer::get_line_starts(value);
 
         match changed.line_starts.last() {
@@ -800,6 +799,7 @@ impl Node {
 
     fn from_changed_buffer(buffer: &Buffer, start_offset: i32, start: BufferCursor) -> Node {
         let end_offset = buffer.value.graphemes(true).count() as i32;
+        println!("start_offset: {}, end_offset: {}", start_offset, end_offset);
         let line_starts_len = buffer.line_starts.len() as i32;
         let end_line = if line_starts_len == 0 {
             0
