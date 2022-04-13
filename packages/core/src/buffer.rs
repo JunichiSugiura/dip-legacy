@@ -200,9 +200,7 @@ impl TextBuffer {
         let mut res = None;
         let mut cursor = self.tree.front();
 
-        while !cursor.is_null() {
-            let node = cursor.get().expect("Cursor is null");
-
+        while let Some(node) = cursor.get() {
             if node.left_len > offset {
                 cursor.move_prev();
             } else if node.total_len() >= offset {
