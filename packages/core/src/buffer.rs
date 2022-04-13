@@ -929,4 +929,18 @@ mod inserts_and_deletes {
         /*             "This is a document with some text.This is more text to insert at offset 34." */
         /*         ); */
     }
+
+    #[test]
+    fn more_inserts() {
+        let mut buffer = TextBuffer::new(DefaultEOL::LF);
+
+        buffer.insert(0, "AAA");
+        assert_eq!(buffer.to_string(), "AAA");
+        // buffer.insert(0, "BBB");
+        // assert_eq!(buffer.to_string(), "BBBAAA");
+        // buffer.insert(6, "CCC");
+        // assert_eq!(buffer.to_string(), "BBBAAACCC");
+        // buffer.insert(5, "DDD");
+        // assert_eq!(buffer.to_string(), "BBBAADDDACCC");
+    }
 }
