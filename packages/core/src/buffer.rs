@@ -394,10 +394,8 @@ impl TextBuffer {
         let mut text = String::new();
         for node in self.tree.iter() {
             let s = self.get_node_content(node);
-            println!("total_size: {}, text: {},", node.total_len(), s);
             text.push_str(&s);
         }
-        println!("final text: {}", text);
         text
     }
 
@@ -799,7 +797,6 @@ impl Node {
 
     fn from_changed_buffer(buffer: &Buffer, start_offset: i32, start: BufferCursor) -> Node {
         let end_offset = buffer.value.graphemes(true).count() as i32;
-        println!("start_offset: {}, end_offset: {}", start_offset, end_offset);
         let line_starts_len = buffer.line_starts.len() as i32;
         let end_line = if line_starts_len == 0 {
             0
@@ -917,7 +914,6 @@ mod inserts_and_deletes {
         assert_eq!(buffer.to_string(), "This is a document with some text.");
 
         buffer.insert(34, "This is some more text to insert at offset 34.");
-        println!("{:#?}", buffer);
         assert_eq!(
             buffer.to_string(),
             "This is a document with some text.This is some more text to insert at offset 34."
