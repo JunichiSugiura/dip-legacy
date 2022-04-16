@@ -12,6 +12,6 @@ keywords = ["text", "editor", "IDE", "vi", "vim"]
 
 [dependencies]
 bevy = { version = "0.6", default-features = false }
-intrusive-collections = "0.9"
+intrusive-collections = { version = "0.9", git = "https://github.com/JunichiSugiura/intrusive-rs", branch = "rbtree-parent" }
 leafwing-input-manager = "0.2"
 unicode-segmentation = "1.9.0"

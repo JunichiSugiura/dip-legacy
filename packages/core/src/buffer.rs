@@ -1,7 +1,10 @@
 use bevy::ecs::prelude::*;
 use intrusive_collections::intrusive_adapter;
-use intrusive_collections::{KeyAdapter, RBTree, RBTreeAtomicLink};
-use std::{convert::From, fs, str};
+use intrusive_collections::{
+    rbtree::{AtomicLinkOps, RBTreeOps},
+    KeyAdapter, RBTree, RBTreeAtomicLink,
+};
+use std::{convert::From, fs, ptr::NonNull, str};
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Component, Debug)]
@@ -87,7 +90,7 @@ impl TextBuffer {
                 self.append(node, value);
             } else if node_start_offset == offset {
                 self.insert_left(node, value);
-                self.cache.search.validate(offset);
+                self.validate_search_cache(offset);
             } else if node_start_offset + node.piece.len > offset {
                 self.insert_middle(node, value);
             } else {
@@ -96,7 +99,7 @@ impl TextBuffer {
             }
         }
 
-        // self.compute_buffer_metadata();
+        self.compute_buffer_metadata();
     }
 
     fn append(&mut self, mut node: Node, mut value: String) {
@@ -374,20 +377,22 @@ impl TextBuffer {
 
         self.cache.line_count = line_feed_count;
         self.cache.len = grapheme_len;
-        self.cache.search.validate(grapheme_len);
+        self.validate_search_cache(grapheme_len);
     }
 
-    fn update_tree_metadata(&mut self, _node: &Node, _delta: i32, _line_feed_count_delta: i32) {
-        todo!("update_tree_metadata: get cursor based on node adapter key + lower/upper_bound method instead of node.parent_key");
-        // while let Some(key) = node.parent_key {
-        //     let mut cursor = self.tree.find_mut(&key);
-        //     let mut node = node.clone();
-        //     node.left_len += delta;
-        //     node.left_line_feed_count += line_feed_count_delta;
-        //     cursor
-        //         .replace_with(Box::new(node))
-        //         .expect("Failed to replace parent node meta data");
-        // }
+    fn update_tree_metadata(&mut self, node: &Node, delta: i32, line_feed_count_delta: i32) {
+        let mut cursor = self.tree.find_mut(&node.total_len());
+        cursor.move_parent();
+        while let Some(node) = cursor.get() {
+            let mut node = node.clone();
+            node.left_len += delta;
+            node.left_line_feed_count += line_feed_count_delta;
+
+            cursor
+                .replace_with(Box::new(node))
+                .expect("Failed to replace parent node meta data");
+            cursor.move_parent()
+        }
     }
 
     fn recompute_tree_metadata(&mut self, node: &Node) {}
@@ -420,6 +425,17 @@ impl TextBuffer {
         }
 
         text
+    }
+
+    fn validate_search_cache(&mut self, offset: i32) {
+        self.cache.search.positions.retain(|p| {
+            let cursor = self.tree.find(&p.node.total_len());
+            !(cursor.peek_parent().is_null() || p.node_start_offset >= offset)
+        });
+        self.cache.search.line_positions.retain(|p| {
+            let cursor = self.tree.find(&p.node.total_len());
+            !(cursor.peek_parent().is_null() || p.node_start_offset >= offset)
+        });
     }
 }
 
@@ -691,14 +707,6 @@ impl PieceTreeSearchCache {
     //     }
     //     self.line_positions.push(line_position);
     // }
-
-    fn validate(&mut self, _offset: i32) {
-        todo!("validate: parent_key is deplicated");
-        // self.positions
-        //     .retain(|p| !(p.node.parent_key.is_none() || p.node_start_offset >= offset));
-        // self.line_positions
-        //     .retain(|p| !(p.node.parent_key.is_none() || p.node_start_offset >= offset));
-    }
 }
 
 #[derive(Default, Debug)]
