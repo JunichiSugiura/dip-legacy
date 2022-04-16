@@ -1,10 +1,7 @@
 use bevy::ecs::prelude::*;
 use intrusive_collections::intrusive_adapter;
-use intrusive_collections::{
-    rbtree::{AtomicLinkOps, RBTreeOps},
-    KeyAdapter, RBTree, RBTreeAtomicLink,
-};
-use std::{convert::From, fs, ptr::NonNull, str};
+use intrusive_collections::{KeyAdapter, RBTree, RBTreeAtomicLink};
+use std::{convert::From, fs, str};
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Component, Debug)]
@@ -267,8 +264,8 @@ impl TextBuffer {
 
         let node = Node::from_changed_buffer(&changed, start_offset, self.cache.last_change);
         self.changed = Some(changed);
-        self.recompute_tree_metadata(&node);
         self.tree.insert(Box::new(node.clone()));
+        self.recompute_tree_metadata(&node);
 
         self.cache.last_change = node.piece.end;
     }
@@ -391,11 +388,80 @@ impl TextBuffer {
             cursor
                 .replace_with(Box::new(node))
                 .expect("Failed to replace parent node meta data");
-            cursor.move_parent()
+            cursor.move_parent();
         }
     }
 
-    fn recompute_tree_metadata(&mut self, node: &Node) {}
+    fn recompute_tree_metadata(&mut self, node: &Node) {
+        let mut cursor = self.tree.find(&node.total_len());
+        if let Some(root) = self.tree.front().get() {
+            let current = cursor.get().expect("Node provided is null");
+            if root.total_len() != current.total_len() {
+                return;
+            }
+
+            cursor.move_parent();
+            while let Some(node) = cursor.peek_right().get() {
+                if current.total_len() == node.total_len() {
+                    cursor.move_parent();
+                }
+            }
+
+            if root.total_len() != current.total_len() {
+                return;
+            }
+
+            cursor.move_parent();
+
+            let left = cursor.peek_left().get();
+            if let Some(node) = cursor.get() {
+                let delta = self.calculate_size(left) - node.left_len;
+                let line_feed_count_delta = self.calculate_line_feed_count(left) - node.left_len;
+
+                let mut new_node = node.clone();
+                new_node.left_len += delta;
+                new_node.left_line_feed_count += line_feed_count_delta;
+
+                let mut cursor = self.tree.find_mut(&node.total_len());
+                cursor
+                    .replace_with(Box::new(new_node))
+                    .expect("Faild to replace with new node");
+            }
+
+            todo!("recompute_tree_metadata");
+
+            // while (x !== tree.root && (delta !== 0 || lf_delta !== 0)) {
+            //     if (x.parent.left === x) {
+            //         x.parent.size_left += delta;
+            //         x.parent.lf_left += lf_delta;
+            //     }
+
+            //     x = x.parent;
+            // }
+        }
+    }
+
+    fn calculate_size(&self, node: Option<&Node>) -> i32 {
+        match node {
+            Some(node) => {
+                let cursor = self.tree.find(&node.total_len());
+                node.left_len + node.piece.len + self.calculate_size(cursor.peek_right().get())
+            }
+            None => 0,
+        }
+    }
+
+    fn calculate_line_feed_count(&self, node: Option<&Node>) -> i32 {
+        match node {
+            Some(node) => {
+                let cursor = self.tree.find(&node.total_len());
+                node.left_line_feed_count
+                    + node.piece.line_feed_count
+                    + self.calculate_size(cursor.peek_right().get())
+            }
+            None => 0,
+        }
+    }
 
     pub fn to_string(&self) -> String {
         let mut text = String::new();

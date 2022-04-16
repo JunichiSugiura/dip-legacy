@@ -1898,7 +1898,7 @@ dependencies = [
 [[package]]
 name = "intrusive-collections"
 version = "0.9.3"
-source = "git+https://github.com/JunichiSugiura/intrusive-rs?branch=rbtree-parent#e6031764ce7ba897f33ba459700be0976e0256a6"
+source = "git+https://github.com/JunichiSugiura/intrusive-rs?branch=rbtree-parent#7645233f83130cf61403fa28e673089fad50fdda"
 dependencies = [
  "memoffset 0.5.6",
 ]
