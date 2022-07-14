@@ -394,51 +394,62 @@ impl TextBuffer {
 
     fn recompute_tree_metadata(&mut self, node: &Node) {
         let mut cursor = self.tree.find(&node.total_len());
-        if let Some(root) = self.tree.front().get() {
-            let current = cursor.get().expect("Node provided is null");
-            if root.total_len() != current.total_len() {
-                return;
-            }
-
-            cursor.move_parent();
-            while let Some(node) = cursor.peek_right().get() {
-                if current.total_len() == node.total_len() {
-                    cursor.move_parent();
-                }
-            }
-
-            if root.total_len() != current.total_len() {
-                return;
-            }
-
-            cursor.move_parent();
-
-            let left = cursor.peek_left().get();
-            if let Some(node) = cursor.get() {
-                let delta = self.calculate_size(left) - node.left_len;
-                let line_feed_count_delta = self.calculate_line_feed_count(left) - node.left_len;
-
-                let mut new_node = node.clone();
-                new_node.left_len += delta;
-                new_node.left_line_feed_count += line_feed_count_delta;
-
-                let mut cursor = self.tree.find_mut(&node.total_len());
-                cursor
-                    .replace_with(Box::new(new_node))
-                    .expect("Faild to replace with new node");
-            }
-
-            todo!("recompute_tree_metadata");
-
-            // while (x !== tree.root && (delta !== 0 || lf_delta !== 0)) {
-            //     if (x.parent.left === x) {
-            //         x.parent.size_left += delta;
-            //         x.parent.lf_left += lf_delta;
-            //     }
-
-            //     x = x.parent;
-            // }
+        let current = cursor.get().expect("Node provided is null");
+        if self.is_root(&current) {
+            return;
         }
+
+        while let Some(node) = cursor.peek_parent().peek_right().get() {
+            if current.total_len() == node.total_len() {
+                cursor.move_parent();
+            }
+        }
+
+        if self.is_root(current) {
+            return;
+        }
+
+        cursor.move_parent();
+
+        // let left = cursor.peek_left().get();
+        // if let Some(node) = cursor.get() {
+        //     let delta = self.calculate_size(left) - node.left_len;
+        //     let line_feed_count_delta = self.calculate_line_feed_count(left) - node.left_len;
+
+        //     let mut new_node = node.clone();
+        //     new_node.left_len += delta;
+        //     new_node.left_line_feed_count += line_feed_count_delta;
+
+        //     {
+        //         let mut cursor = self.tree.find_mut(&node.total_len());
+        //         cursor
+        //             .replace_with(Box::new(new_node))
+        //             .expect("Faild to replace with new node");
+        //     }
+
+        //     if self.is_root(node) || delta == 0 || line_feed_count_delta == 0 {
+        //         return;
+        //     }
+
+        //     while let Some(parent) = cursor.peek_parent().get() {
+        //         cursor.move_parent();
+        //         if let Some(parent_left) = cursor.peek_parent().peek_left().get() {
+        //             if parent.total_len() == parent_left.total_len() {
+        //                 let mut new_node = parent.clone();
+        //                 new_node.left_len += delta;
+        //                 new_node.left_line_feed_count += line_feed_count_delta;
+
+        //                 let mut cursor = self.tree.find_mut(&parent.total_len());
+        //                 cursor.replace_with(Box::new(new_node));
+        //             }
+        //         }
+        //     }
+        // }
+    }
+
+    fn is_root(&self, node: &Node) -> bool {
+        let root = self.tree.front().get().expect("Tree is empty");
+        root.total_len() == node.total_len()
     }
 
     fn calculate_size(&self, node: Option<&Node>) -> i32 {

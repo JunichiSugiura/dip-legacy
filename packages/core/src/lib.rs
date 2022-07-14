@@ -68,8 +68,8 @@ fn spawn_user(mut commands: Commands) {
         .insert_bundle(InputManagerBundle::<Action> {
             action_state: ActionState::default(),
             input_map: InputMap::new([
-                (Action::InsertMode, KeyCode::I),
-                (Action::NormalMode, KeyCode::Escape),
+                (KeyCode::I, Action::InsertMode),
+                (KeyCode::Escape, Action::NormalMode),
             ]),
         })
         .insert(Mode::default());
@@ -105,12 +105,12 @@ fn change_mode(mut query: Query<(&ActionState<Action>, &mut Mode), With<User>>) 
     let (action_state, mut mode) = query.single_mut();
     match mode.0 {
         ModeType::Normal => {
-            if action_state.just_pressed(&Action::InsertMode) {
+            if action_state.just_pressed(Action::InsertMode) {
                 mode.0 = ModeType::Insert;
             }
         }
         ModeType::Insert => {
-            if action_state.just_pressed(&Action::NormalMode) {
+            if action_state.just_pressed(Action::NormalMode) {
                 mode.0 = ModeType::Normal;
             }
         }
