@@ -1047,6 +1047,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dioxus"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "211119e0c96d2d0221ce1886b94aed18c41f7f9ccb23d0dc80fff5e919b2a1a2"
+dependencies = [
+ "dioxus-core",
+ "dioxus-core-macro",
+ "dioxus-hooks",
+ "dioxus-html",
+]
+
+[[package]]
 name = "dioxus-core"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1064,6 +1076,18 @@ dependencies = [
  "serde",
  "slab",
  "smallvec",
+]
+
+[[package]]
+name = "dioxus-core-macro"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "243fe485d0455d6f3645526970100a403fd037740af105cb5f175d8f4227baa6"
+dependencies = [
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1118,6 +1142,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_dioxus",
+ "dioxus",
  "dip_core",
 ]
 

@@ -13,4 +13,5 @@ keywords = ["text", "editor", "IDE", "vi", "vim"]
 [dependencies]
 bevy = { version = "0.7", default-features = false }
 bevy_dioxus = "0.1.1"
+dioxus = "0.2"
 dip_core = { version = "^0.1", path = "../core" }
