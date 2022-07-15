@@ -1,61 +1,37 @@
-use crate::{
-    buffer::{DefaultEOL, Document},
-    command::UICommand,
-    event::*,
-};
-use bevy::{app::prelude::*, ecs::prelude::*};
+mod buffer;
+mod cache;
+mod info;
+mod node;
+mod piece;
+mod plugin;
+mod text_buffer;
 
-#[derive(Default)]
-pub struct DocumentPlugin;
+pub use crate::document::plugin::DocumentPlugin;
+use crate::document::{info::DefaultEOL, text_buffer::TextBuffer};
+use bevy::ecs::prelude::*;
+use std::fs;
 
-impl Plugin for DocumentPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_event::<NewDocument>()
-            .add_event::<OpenDocument>()
-            .add_event::<DocumentInsert>()
-            .add_stage_after(
-                CoreStage::Update,
-                DipStage::Notify,
-                SystemStage::single_threaded(),
-            )
-            .add_startup_system(debug_setup)
-            .add_system(new_document)
-            .add_system(open_document)
-            // .add_system(insert)
-            .add_system_to_stage(DipStage::Notify, send_document_added);
+#[derive(Component, Debug)]
+pub struct Document {
+    file_path: Option<&'static str>,
+    text_buffer: TextBuffer,
+}
+
+impl Document {
+    pub fn new(default_eol: DefaultEOL) -> Document {
+        Document {
+            file_path: None,
+            text_buffer: TextBuffer::new(default_eol),
+        }
     }
-}
 
-fn debug_setup(mut new_doc: EventWriter<OpenDocument>) {
-    new_doc.send(OpenDocument::new("./README.md".into()));
-}
+    pub fn from_file(file_path: &'static str, default_eol: DefaultEOL) -> Document {
+        let original = fs::read_to_string(file_path.clone()).expect("Failed to read file");
+        let text_buffer = TextBuffer::from_string(&original, default_eol);
 
-// fn insert(mut events: EventReader<DocumentInsert>, q: Query<(Entity, &TextBuffer)>) {
-//     for e in events.iter() {
-//         for (id, b) in q.iter() {
-//             if id == e.entity {
-//                 b.insert(e.offset, e.text);
-//             }
-//         }
-//     }
-// }
-
-fn new_document(mut events: EventReader<NewDocument>, mut commands: Commands) {
-    for _ in events.iter() {
-        let document = Document::new(DefaultEOL::LF);
-        commands.spawn().insert(document);
-    }
-}
-
-fn open_document(mut events: EventReader<OpenDocument>, mut commands: Commands) {
-    for e in events.iter() {
-        let document = Document::from_file(e.path, DefaultEOL::LF);
-        commands.spawn().insert(document);
-    }
-}
-
-fn send_document_added(q: Query<&Document, Added<Document>>, mut ui: EventWriter<UICommand>) {
-    for _text_buffer in q.iter() {
-        ui.send(UICommand::DocumentAdded);
+        Document {
+            file_path: Some(file_path),
+            text_buffer,
+        }
     }
 }

@@ -16,6 +16,7 @@ cargo run -p dip_desktop
 
 # Test
 cargo test --all
+cargo test -p dip_core # specify package
 
 # Docs
 cargo doc --open --no-deps

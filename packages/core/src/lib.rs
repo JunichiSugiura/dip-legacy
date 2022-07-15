@@ -1,4 +1,3 @@
-pub mod buffer;
 pub mod command;
 pub mod document;
 pub mod event;
