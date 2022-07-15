@@ -21,6 +21,3 @@ members = [
     "packages/desktop",
 ]
 
-[patch.crates-io]
-bevy = { git = "https://github.com/bevyengine/bevy", rev = "5af7464", default-features = false, optional = true }
-

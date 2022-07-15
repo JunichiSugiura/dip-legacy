@@ -11,6 +11,7 @@ documentation = "https://github.com/JunichiSugiura/dip/"
 keywords = ["text", "editor", "IDE", "vi", "vim"]
 
 [dependencies]
-bevy = { version = "0.6", default-features = false }
-leafwing-input-manager = "0.2"
-
+bevy = { version = "0.7", default-features = false }
+intrusive-collections = { version = "0.9", git = "https://github.com/JunichiSugiura/intrusive-rs", branch = "rbtree-parent" }
+leafwing-input-manager = { version = "0.4", default-features = false }
+unicode-segmentation = "1.9.0"

@@ -13,4 +13,12 @@ Bevy is known as a game engine but with its extensible plugin structure and rema
 ```sh
 # Desktop
 cargo run -p dip_desktop
+
+# Test
+cargo test --all
+cargo test -p dip_core # specify package
+
+# Docs
+cargo doc --open --no-deps
 ```
+

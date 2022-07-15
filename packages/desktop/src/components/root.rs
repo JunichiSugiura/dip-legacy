@@ -1,16 +1,17 @@
 use crate::components::status_bar;
 use bevy::log::info;
-use dioxus::{bevy::prelude::*, prelude::*};
+use bevy_dioxus::desktop::prelude::*;
+use dioxus::prelude::*;
 use dip_core::command::{CoreCommand, UICommand};
 
 pub fn Root(cx: Scope) -> Element {
-    let window = use_bevy_window::<CoreCommand, UICommand>(&cx);
+    let window = use_window::<CoreCommand, UICommand>(&cx);
 
     use_future(&cx, (), |_| {
-        let mut rx = window.receiver();
+        let rx = window.receiver();
 
         async move {
-            while let Ok(cmd) = rx.recv().await {
+            while let Some(cmd) = rx.receive().await {
                 info!("🎨 {:?}", cmd);
             }
         }
@@ -21,7 +22,7 @@ pub fn Root(cx: Scope) -> Element {
             h1 { "dip: Text Editor" },
             button {
                 onclick: |_e| {
-                    window.send(CoreCommand::Exit).unwrap();
+                    window.send(CoreCommand::Exit);
                 },
                 "Exit",
             }

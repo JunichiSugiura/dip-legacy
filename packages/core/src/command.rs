@@ -9,4 +9,5 @@ pub enum CoreCommand {
 #[derive(Debug, Clone, Copy)]
 pub enum UICommand {
     ModeChange(Mode),
+    DocumentAdded,
 }
